@@ -8,6 +8,23 @@
 export const GITHUB_USERNAME = "newM1k3";
 export const GITHUB_API_BASE = "https://api.github.com";
 
+/** Error codes the UI can distinguish for user-facing messages */
+export type GitHubErrorCode = "RATE_LIMIT" | "UNAUTHORIZED" | "NOT_FOUND" | "UNKNOWN";
+
+export class GitHubAPIError extends Error {
+  code: GitHubErrorCode;
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
+    this.code =
+      status === 403 ? "RATE_LIMIT" :
+      status === 401 ? "UNAUTHORIZED" :
+      status === 404 ? "NOT_FOUND" :
+      "UNKNOWN";
+  }
+}
+
 export interface GitHubRepo {
   id: number;
   name: string;
@@ -95,7 +112,16 @@ export interface HeatmapDay {
 }
 
 function getHeaders(): HeadersInit {
-  const token = import.meta.env.VITE_GITHUB_TOKEN;
+  // Priority: localStorage PAT → VITE_GITHUB_TOKEN env var → unauthenticated
+  let token: string | null = null;
+  try {
+    token = localStorage.getItem("hs_github_pat") || null;
+  } catch {
+    // localStorage unavailable (SSR / privacy mode)
+  }
+  if (!token) {
+    token = import.meta.env.VITE_GITHUB_TOKEN || null;
+  }
   const headers: Record<string, string> = {
     Accept: "application/vnd.github.v3+json",
   };
@@ -112,7 +138,7 @@ export async function fetchRepos(username: string): Promise<GitHubRepo[]> {
   );
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.message || `GitHub API error: ${res.status}`);
+    throw new GitHubAPIError(err.message || `GitHub API error: ${res.status}`, res.status);
   }
   return res.json();
 }
@@ -133,7 +159,7 @@ export async function fetchUser(username: string): Promise<GitHubUser> {
   const res = await fetch(`${GITHUB_API_BASE}/users/${username}`, {
     headers: getHeaders(),
   });
-  if (!res.ok) throw new Error(`GitHub API error: ${res.status}`);
+  if (!res.ok) throw new GitHubAPIError(`GitHub API error: ${res.status}`, res.status);
   return res.json();
 }
 

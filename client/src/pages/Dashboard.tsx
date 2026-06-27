@@ -31,6 +31,7 @@ import {
   shortSha,
   getLanguageColor,
   GITHUB_USERNAME,
+  GitHubAPIError,
   type GitHubRepo,
   type GitHubUser,
   type GitHubCommit,
@@ -83,6 +84,7 @@ export default function Dashboard() {
   const [statuses, setStatuses]               = useState<Record<string, StatusName>>({});
   const [loading, setLoading]                 = useState(true);
   const [error, setError]                     = useState<string | null>(null);
+  const [errorCode, setErrorCode]              = useState<"RATE_LIMIT" | "UNAUTHORIZED" | "UNKNOWN" | null>(null);
   const [lastSynced, setLastSynced]           = useState<Date | null>(null);
   const [filterAgent, setFilterAgent]         = useState<FilterAgent>("All");
   const [filterStatus, setFilterStatus]       = useState<FilterStatus>("All");
@@ -91,6 +93,7 @@ export default function Dashboard() {
     setLoading(true);
     setHeatmapLoading(true);
     setError(null);
+    setErrorCode(null);
     try {
       const [userData, repoData] = await Promise.all([
         fetchUser(GITHUB_USERNAME),
@@ -116,7 +119,13 @@ export default function Dashboard() {
       setHeatmapDays(heatmap);
       setHeatmapLoading(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to fetch GitHub data");
+      if (err instanceof GitHubAPIError) {
+        setErrorCode(err.code === "RATE_LIMIT" || err.code === "UNAUTHORIZED" ? err.code : "UNKNOWN");
+        setError(err.message);
+      } else {
+        setErrorCode("UNKNOWN");
+        setError(err instanceof Error ? err.message : "Failed to fetch GitHub data");
+      }
     } finally {
       setLoading(false);
     }
@@ -222,21 +231,64 @@ export default function Dashboard() {
       {/* ── Error State ── */}
       {error && (
         <div
-          className="flex items-start gap-3 p-4 rounded-lg"
+          className="rounded-xl p-4 space-y-2"
           style={{
-            background: "oklch(0.62 0.22 25 / 8%)",
-            border: "1px solid oklch(0.62 0.22 25 / 25%)",
+            background: errorCode === "RATE_LIMIT" || errorCode === "UNAUTHORIZED"
+              ? "oklch(0.72 0.18 55 / 8%)"
+              : "oklch(0.62 0.22 25 / 8%)",
+            border: errorCode === "RATE_LIMIT" || errorCode === "UNAUTHORIZED"
+              ? "1px solid oklch(0.72 0.18 55 / 30%)"
+              : "1px solid oklch(0.62 0.22 25 / 25%)",
           }}
         >
-          <AlertCircle size={15} className="shrink-0 mt-0.5" style={{ color: "oklch(0.75 0.22 25)" }} />
-          <div>
-            <p className="text-xs font-medium" style={{ color: "oklch(0.85 0.1 25)", fontFamily: "'Space Grotesk', sans-serif" }}>
-              api error
-            </p>
-            <p className="text-xs mt-0.5" style={{ color: "oklch(0.65 0.1 25)", fontFamily: "'JetBrains Mono', monospace" }}>
-              {error} — check VITE_GITHUB_TOKEN
-            </p>
+          <div className="flex items-center gap-2">
+            <AlertCircle
+              size={14}
+              style={{ color: errorCode === "RATE_LIMIT" || errorCode === "UNAUTHORIZED" ? "oklch(0.82 0.18 55)" : "oklch(0.75 0.22 25)" }}
+            />
+            <span
+              className="text-xs font-semibold"
+              style={{
+                color: errorCode === "RATE_LIMIT" || errorCode === "UNAUTHORIZED" ? "oklch(0.88 0.14 55)" : "oklch(0.85 0.1 25)",
+                fontFamily: "'Space Grotesk', sans-serif",
+              }}
+            >
+              {errorCode === "RATE_LIMIT"
+                ? "rate limit exceeded"
+                : errorCode === "UNAUTHORIZED"
+                ? "authentication failed"
+                : "api error"}
+            </span>
           </div>
+
+          {(errorCode === "RATE_LIMIT" || errorCode === "UNAUTHORIZED") ? (
+            <p
+              className="text-xs leading-relaxed"
+              style={{ color: "oklch(0.65 0.1 55)", fontFamily: "'JetBrains Mono', monospace" }}
+            >
+              github api rate limit exceeded or token missing. open{" "}
+              <button
+                onClick={() => {
+                  // open the sidebar settings panel on desktop by scrolling to it
+                  // on mobile, prompt user to open the sidebar
+                  const el = document.querySelector('[title="GitHub PAT settings"]') as HTMLElement | null;
+                  el?.click();
+                }}
+                className="underline underline-offset-2 hover:opacity-80 transition-opacity"
+                style={{ color: "oklch(0.88 0.18 196)" }}
+              >
+                settings
+              </button>{" "}
+              in the sidebar and paste your personal access token to load repositories.
+            </p>
+          ) : (
+            <p
+              className="text-xs"
+              style={{ color: "oklch(0.65 0.1 25)", fontFamily: "'JetBrains Mono', monospace" }}
+            >
+              {error}
+            </p>
+          )}
         </div>
       )}
 

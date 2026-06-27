@@ -1,24 +1,55 @@
 /* ============================================================
-   lib/store.ts — Persistent client-side state (Phase 2)
+   lib/store.ts — Persistent client-side state
+   Phase 3.2: expanded 10-agent list + PAT token helpers
    All state uses localStorage — zero backend dependencies.
    Keys:
      hs_agent_assignments  → Record<repoName, AgentName>
      hs_repo_statuses      → Record<repoName, StatusName>
      hs_prompt_vault       → Prompt[]
+     hs_github_pat         → string (GitHub Personal Access Token)
    ============================================================ */
 
 // ── Agent Types ────────────────────────────────────────────────
 
-export type AgentName = "Bolt.new" | "Manus" | "Replit" | "Cursor" | "None";
+export type AgentName =
+  | "Bolt.new"
+  | "Manus"
+  | "Replit"
+  | "Cursor"
+  | "Gemini"
+  | "Claude"
+  | "Emergent"
+  | "Qwen"
+  | "Kimi"
+  | "DeepThink"
+  | "None";
 
-export const AGENTS: AgentName[] = ["None", "Bolt.new", "Manus", "Replit", "Cursor"];
+export const AGENTS: AgentName[] = [
+  "None",
+  "Bolt.new",
+  "Manus",
+  "Replit",
+  "Cursor",
+  "Gemini",
+  "Claude",
+  "Emergent",
+  "Qwen",
+  "Kimi",
+  "DeepThink",
+];
 
 export const AGENT_BADGE_CLASS: Record<AgentName, string> = {
-  "Bolt.new": "badge-bolt",
-  "Manus":    "badge-manus",
-  "Replit":   "badge-replit",
-  "Cursor":   "badge-cursor",
-  "None":     "badge-none",
+  "Bolt.new":  "badge-bolt",
+  "Manus":     "badge-manus",
+  "Replit":    "badge-replit",
+  "Cursor":    "badge-cursor",
+  "Gemini":    "badge-gemini",
+  "Claude":    "badge-claude",
+  "Emergent":  "badge-emergent",
+  "Qwen":      "badge-qwen",
+  "Kimi":      "badge-kimi",
+  "DeepThink": "badge-deepthink",
+  "None":      "badge-none",
 };
 
 // ── Status Types ───────────────────────────────────────────────
@@ -27,7 +58,6 @@ export type StatusName = "Idea" | "Vibe Coding" | "Debugging" | "Deployed" | "No
 
 export const STATUSES: StatusName[] = ["None", "Idea", "Vibe Coding", "Debugging", "Deployed"];
 
-/** Pill color classes for each status */
 export const STATUS_BADGE_CLASS: Record<StatusName, string> = {
   "Idea":        "badge-status-idea",
   "Vibe Coding": "badge-status-vibe",
@@ -36,7 +66,6 @@ export const STATUS_BADGE_CLASS: Record<StatusName, string> = {
   "None":        "badge-none",
 };
 
-/** Accent colors for left-border treatment in Spoke Tracker rows */
 export const STATUS_ACCENT: Record<StatusName, string> = {
   "Idea":        "oklch(0.75 0.15 220)",
   "Vibe Coding": "oklch(0.72 0.18 55)",
@@ -77,6 +106,30 @@ export function loadStatuses(): Record<string, StatusName> {
 
 export function saveStatuses(statuses: Record<string, StatusName>): void {
   localStorage.setItem(STATUSES_KEY, JSON.stringify(statuses));
+}
+
+// ── GitHub PAT Token ───────────────────────────────────────────
+
+const PAT_KEY = "hs_github_pat";
+
+export function loadPAT(): string {
+  try {
+    return localStorage.getItem(PAT_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+export function savePAT(token: string): void {
+  if (token.trim()) {
+    localStorage.setItem(PAT_KEY, token.trim());
+  } else {
+    localStorage.removeItem(PAT_KEY);
+  }
+}
+
+export function clearPAT(): void {
+  localStorage.removeItem(PAT_KEY);
 }
 
 // ── Prompt Vault ───────────────────────────────────────────────

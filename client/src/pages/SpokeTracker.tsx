@@ -30,6 +30,7 @@ import {
   timeAgo,
   getLanguageColor,
   GITHUB_USERNAME,
+  GitHubAPIError,
   type GitHubRepo,
 } from "@/lib/github";
 import {
@@ -52,11 +53,17 @@ import ChurnBadge from "@/components/analytics/ChurnBadge";
 
 /* Agent accent colors for left-border treatment */
 const AGENT_ACCENT: Record<AgentName, string> = {
-  "Bolt.new": "oklch(0.72 0.18 55)",
-  "Manus":    "oklch(0.75 0.22 290)",
-  "Replit":   "oklch(0.72 0.18 145)",
-  "Cursor":   "oklch(0.75 0.22 240)",
-  "None":     "oklch(1 0 0 / 6%)",
+  "Bolt.new":  "oklch(0.72 0.18 55)",
+  "Manus":     "oklch(0.75 0.22 290)",
+  "Replit":    "oklch(0.72 0.18 145)",
+  "Cursor":    "oklch(0.75 0.22 240)",
+  "Gemini":    "oklch(0.72 0.18 196)",
+  "Claude":    "oklch(0.75 0.18 30)",
+  "Emergent":  "oklch(0.72 0.20 320)",
+  "Qwen":      "oklch(0.72 0.18 170)",
+  "Kimi":      "oklch(0.75 0.15 260)",
+  "DeepThink": "oklch(0.72 0.22 10)",
+  "None":      "oklch(1 0 0 / 6%)",
 };
 
 type FilterAgent   = AgentName  | "All";
@@ -69,6 +76,7 @@ export default function SpokeTracker() {
   const [statuses, setStatuses]       = useState<Record<string, StatusName>>({});
   const [loading, setLoading]         = useState(true);
   const [error, setError]             = useState<string | null>(null);
+  const [errorCode, setErrorCode]     = useState<"RATE_LIMIT" | "UNAUTHORIZED" | "UNKNOWN" | null>(null);
   const [search, setSearch]           = useState("");
   const [filterAgent, setFilterAgent]     = useState<FilterAgent>("All");
   const [filterStatus, setFilterStatus]   = useState<FilterStatus>("All");
@@ -83,11 +91,18 @@ export default function SpokeTracker() {
   async function loadRepos() {
     setLoading(true);
     setError(null);
+    setErrorCode(null);
     try {
       const data = await fetchRepos(GITHUB_USERNAME);
       setRepos(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to fetch repos");
+      if (err instanceof GitHubAPIError) {
+        setErrorCode(err.code === "RATE_LIMIT" || err.code === "UNAUTHORIZED" ? err.code : "UNKNOWN");
+        setError(err.message);
+      } else {
+        setErrorCode("UNKNOWN");
+        setError(err instanceof Error ? err.message : "Failed to fetch repos");
+      }
     } finally {
       setLoading(false);
     }
@@ -396,19 +411,61 @@ export default function SpokeTracker() {
       {/* ── Error ── */}
       {error && (
         <div
-          className="flex items-start gap-3 p-4 rounded-xl"
+          className="rounded-xl p-4 space-y-2"
           style={{
-            background: "oklch(0.62 0.22 25 / 8%)",
-            border: "1px solid oklch(0.62 0.22 25 / 25%)",
+            background: errorCode === "RATE_LIMIT" || errorCode === "UNAUTHORIZED"
+              ? "oklch(0.72 0.18 55 / 8%)"
+              : "oklch(0.62 0.22 25 / 8%)",
+            border: errorCode === "RATE_LIMIT" || errorCode === "UNAUTHORIZED"
+              ? "1px solid oklch(0.72 0.18 55 / 30%)"
+              : "1px solid oklch(0.62 0.22 25 / 25%)",
           }}
         >
-          <AlertCircle size={14} className="shrink-0 mt-0.5" style={{ color: "oklch(0.75 0.22 25)" }} />
-          <p
-            className="text-xs"
-            style={{ color: "oklch(0.75 0.22 25)", fontFamily: "'JetBrains Mono', monospace" }}
-          >
-            {error}
-          </p>
+          <div className="flex items-center gap-2">
+            <AlertCircle
+              size={14}
+              style={{ color: errorCode === "RATE_LIMIT" || errorCode === "UNAUTHORIZED" ? "oklch(0.82 0.18 55)" : "oklch(0.75 0.22 25)" }}
+            />
+            <span
+              className="text-xs font-semibold"
+              style={{
+                color: errorCode === "RATE_LIMIT" || errorCode === "UNAUTHORIZED" ? "oklch(0.88 0.14 55)" : "oklch(0.85 0.1 25)",
+                fontFamily: "'Space Grotesk', sans-serif",
+              }}
+            >
+              {errorCode === "RATE_LIMIT"
+                ? "rate limit exceeded"
+                : errorCode === "UNAUTHORIZED"
+                ? "authentication failed"
+                : "api error"}
+            </span>
+          </div>
+          {(errorCode === "RATE_LIMIT" || errorCode === "UNAUTHORIZED") ? (
+            <p
+              className="text-xs leading-relaxed"
+              style={{ color: "oklch(0.65 0.1 55)", fontFamily: "'JetBrains Mono', monospace" }}
+            >
+              github api rate limit exceeded or token missing. open{" "}
+              <button
+                onClick={() => {
+                  const el = document.querySelector('[title="GitHub PAT settings"]') as HTMLElement | null;
+                  el?.click();
+                }}
+                className="underline underline-offset-2 hover:opacity-80 transition-opacity"
+                style={{ color: "oklch(0.88 0.18 196)" }}
+              >
+                settings
+              </button>{" "}
+              in the sidebar and paste your personal access token to load repositories.
+            </p>
+          ) : (
+            <p
+              className="text-xs"
+              style={{ color: "oklch(0.65 0.1 25)", fontFamily: "'JetBrains Mono', monospace" }}
+            >
+              {error}
+            </p>
+          )}
         </div>
       )}
 
