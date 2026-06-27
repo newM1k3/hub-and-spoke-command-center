@@ -1,6 +1,6 @@
 /* ============================================================
    lib/github.ts — GitHub API types and fetch utilities
-   Phase 3: + language breakdown, commit stats (churn), heatmap
+   Phase 3.1: + per-repo heatmap breakdown, week-over-week churn
    Uses VITE_GITHUB_TOKEN env var (optional, increases rate limit)
    Target user: newM1k3
    ============================================================ */
@@ -77,10 +77,21 @@ export interface ChurnStats {
   commits: number;
 }
 
+/** Week-over-week churn comparison */
+export interface ChurnTrend {
+  thisWeek: ChurnStats;
+  lastWeek: ChurnStats;
+  /** positive = more additions this week, negative = fewer */
+  delta: number;
+  direction: "up" | "down" | "flat";
+}
+
 /** One day cell for the heatmap */
 export interface HeatmapDay {
   date: string;   // ISO date string YYYY-MM-DD
   count: number;  // total commits that day across all repos
+  /** Map of repo name → commit count for that day (for drill-down tooltip) */
+  repos: Record<string, number>;
 }
 
 function getHeaders(): HeadersInit {
@@ -126,12 +137,8 @@ export async function fetchUser(username: string): Promise<GitHubUser> {
   return res.json();
 }
 
-// ── Phase 3: Language Breakdown ────────────────────────────────
+// ── Language Breakdown ────────────────────────────────────────
 
-/**
- * Fetch raw language byte counts for a repo.
- * Returns {} silently on failure (private/empty repos).
- */
 export async function fetchLanguages(
   username: string,
   repo: string
@@ -144,10 +151,6 @@ export async function fetchLanguages(
   return res.json();
 }
 
-/**
- * Convert a raw LanguageMap to sorted LanguageSlice[] (percentage-based).
- * Groups languages < 3% into "Other" to keep the bar readable.
- */
 export function processLanguages(raw: LanguageMap): LanguageSlice[] {
   const total = Object.values(raw).reduce((a, b) => a + b, 0);
   if (total === 0) return [];
@@ -160,7 +163,6 @@ export function processLanguages(raw: LanguageMap): LanguageSlice[] {
       color: getLanguageColor(name),
     }));
 
-  // Merge tiny slices into "Other"
   const main = slices.filter((s) => s.percent >= 3);
   const other = slices.filter((s) => s.percent < 3);
   if (other.length > 0) {
@@ -170,29 +172,23 @@ export function processLanguages(raw: LanguageMap): LanguageSlice[] {
   return main;
 }
 
-// ── Phase 3: Commit Churn ──────────────────────────────────────
+// ── Commit Churn ──────────────────────────────────────────────
 
-/**
- * Fetch the last `limit` commits for a repo and sum their stats.
- * Each commit requires a separate detail request — batched with Promise.all.
- * Returns { additions: 0, deletions: 0, commits: 0 } on failure.
- */
-export async function fetchChurnStats(
+async function fetchChurnForWindow(
   username: string,
   repo: string,
-  limit = 5
+  since: Date,
+  until: Date
 ): Promise<ChurnStats> {
   try {
-    // Step 1: get commit SHAs
     const listRes = await fetch(
-      `${GITHUB_API_BASE}/repos/${username}/${repo}/commits?per_page=${limit}`,
+      `${GITHUB_API_BASE}/repos/${username}/${repo}/commits?since=${since.toISOString()}&until=${until.toISOString()}&per_page=20`,
       { headers: getHeaders() }
     );
     if (!listRes.ok) return { additions: 0, deletions: 0, commits: 0 };
     const list: GitHubCommit[] = await listRes.json();
     if (!list.length) return { additions: 0, deletions: 0, commits: 0 };
 
-    // Step 2: fetch each commit detail for stats
     const details = await Promise.all(
       list.map(async (c) => {
         const r = await fetch(
@@ -204,7 +200,7 @@ export async function fetchChurnStats(
       })
     );
 
-    const stats = details.reduce(
+    return details.reduce(
       (acc, d) => {
         if (!d?.stats) return acc;
         return {
@@ -215,38 +211,102 @@ export async function fetchChurnStats(
       },
       { additions: 0, deletions: 0, commits: 0 }
     );
-
-    return stats;
   } catch {
     return { additions: 0, deletions: 0, commits: 0 };
   }
 }
 
-// ── Phase 3: Activity Heatmap ──────────────────────────────────
+/**
+ * Fetch churn stats for last N commits (used for the badge display).
+ */
+export async function fetchChurnStats(
+  username: string,
+  repo: string,
+  limit = 5
+): Promise<ChurnStats> {
+  try {
+    const listRes = await fetch(
+      `${GITHUB_API_BASE}/repos/${username}/${repo}/commits?per_page=${limit}`,
+      { headers: getHeaders() }
+    );
+    if (!listRes.ok) return { additions: 0, deletions: 0, commits: 0 };
+    const list: GitHubCommit[] = await listRes.json();
+    if (!list.length) return { additions: 0, deletions: 0, commits: 0 };
+
+    const details = await Promise.all(
+      list.map(async (c) => {
+        const r = await fetch(
+          `${GITHUB_API_BASE}/repos/${username}/${repo}/commits/${c.sha}`,
+          { headers: getHeaders() }
+        );
+        if (!r.ok) return null;
+        return r.json() as Promise<GitHubCommitDetail>;
+      })
+    );
+
+    return details.reduce(
+      (acc, d) => {
+        if (!d?.stats) return acc;
+        return {
+          additions: acc.additions + d.stats.additions,
+          deletions: acc.deletions + d.stats.deletions,
+          commits: acc.commits + 1,
+        };
+      },
+      { additions: 0, deletions: 0, commits: 0 }
+    );
+  } catch {
+    return { additions: 0, deletions: 0, commits: 0 };
+  }
+}
 
 /**
- * Build a 28-day (4-week) heatmap from commit activity across all repos.
- * Uses /repos/:owner/:repo/commits?since=...&until=... for each repo.
- * Returns an array of 28 HeatmapDay objects, oldest → newest.
+ * Fetch week-over-week churn trend for a repo.
+ * thisWeek = last 7 days, lastWeek = 7–14 days ago.
+ */
+export async function fetchChurnTrend(
+  username: string,
+  repo: string
+): Promise<ChurnTrend> {
+  const now = new Date();
+  const weekAgo = new Date(now);
+  weekAgo.setDate(weekAgo.getDate() - 7);
+  const twoWeeksAgo = new Date(now);
+  twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
+
+  const [thisWeek, lastWeek] = await Promise.all([
+    fetchChurnForWindow(username, repo, weekAgo, now),
+    fetchChurnForWindow(username, repo, twoWeeksAgo, weekAgo),
+  ]);
+
+  const delta = thisWeek.additions - lastWeek.additions;
+  const direction: "up" | "down" | "flat" =
+    Math.abs(delta) < 10 ? "flat" : delta > 0 ? "up" : "down";
+
+  return { thisWeek, lastWeek, delta, direction };
+}
+
+// ── Activity Heatmap ──────────────────────────────────────────
+
+/**
+ * Build a 28-day (4-week) heatmap with per-repo breakdown per day.
  */
 export async function fetchHeatmapData(
   username: string,
   repos: GitHubRepo[]
 ): Promise<HeatmapDay[]> {
-  // Build the 28-day window
   const now = new Date();
   const since = new Date(now);
   since.setDate(since.getDate() - 27);
 
-  // Initialize all 28 days to 0
-  const dayMap: Record<string, number> = {};
+  // Initialize all 28 days
+  const dayMap: Record<string, { count: number; repos: Record<string, number> }> = {};
   for (let i = 0; i < 28; i++) {
     const d = new Date(since);
     d.setDate(d.getDate() + i);
-    dayMap[toDateStr(d)] = 0;
+    dayMap[toDateStr(d)] = { count: 0, repos: {} };
   }
 
-  // Fetch commits for each repo in parallel (cap at 15 repos to stay within rate limits)
   const targetRepos = repos.slice(0, 15);
   await Promise.all(
     targetRepos.map(async (repo) => {
@@ -259,7 +319,10 @@ export async function fetchHeatmapData(
         const commits: GitHubCommit[] = await res.json();
         for (const c of commits) {
           const day = toDateStr(new Date(c.commit.author.date));
-          if (day in dayMap) dayMap[day]++;
+          if (day in dayMap) {
+            dayMap[day].count++;
+            dayMap[day].repos[repo.name] = (dayMap[day].repos[repo.name] ?? 0) + 1;
+          }
         }
       } catch {
         // silently skip
@@ -269,7 +332,7 @@ export async function fetchHeatmapData(
 
   return Object.entries(dayMap)
     .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([date, count]) => ({ date, count }));
+    .map(([date, val]) => ({ date, count: val.count, repos: val.repos }));
 }
 
 function toDateStr(d: Date): string {

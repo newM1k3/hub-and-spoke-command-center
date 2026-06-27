@@ -1,10 +1,11 @@
 /* ============================================================
-   SpokeTracker.tsx — Phase 3
+   SpokeTracker.tsx — Phase 3.1
    + LanguageBar per repo row
-   + ChurnBadge (lines added/deleted) per repo row
+   + ChurnBadge with trend arrow per repo row
+   + Language filter row (TypeScript, JavaScript, Python, etc.)
    - Agent assignment (persisted to localStorage)
    - Status tracking: Idea / Vibe Coding / Debugging / Deployed
-   - Dual filter bar: filter by Agent AND/OR Status
+   - Triple filter bar: Agent + Status + Language
    - All state survives page refresh via localStorage
    ============================================================ */
 import { useEffect, useState } from "react";
@@ -58,8 +59,9 @@ const AGENT_ACCENT: Record<AgentName, string> = {
   "None":     "oklch(1 0 0 / 6%)",
 };
 
-type FilterAgent  = AgentName | "All";
-type FilterStatus = StatusName | "All";
+type FilterAgent   = AgentName  | "All";
+type FilterStatus  = StatusName | "All";
+type FilterLanguage = string    | "All";
 
 export default function SpokeTracker() {
   const [repos, setRepos]             = useState<GitHubRepo[]>([]);
@@ -68,8 +70,9 @@ export default function SpokeTracker() {
   const [loading, setLoading]         = useState(true);
   const [error, setError]             = useState<string | null>(null);
   const [search, setSearch]           = useState("");
-  const [filterAgent, setFilterAgent] = useState<FilterAgent>("All");
-  const [filterStatus, setFilterStatus] = useState<FilterStatus>("All");
+  const [filterAgent, setFilterAgent]     = useState<FilterAgent>("All");
+  const [filterStatus, setFilterStatus]   = useState<FilterStatus>("All");
+  const [filterLang, setFilterLang]       = useState<FilterLanguage>("All");
 
   /* Load localStorage on mount */
   useEffect(() => {
@@ -110,6 +113,17 @@ export default function SpokeTracker() {
     }
   }
 
+  /* Derive unique languages from fetched repos (sorted by count) */
+  const availableLanguages: string[] = (() => {
+    const counts: Record<string, number> = {};
+    for (const r of repos) {
+      if (r.language) counts[r.language] = (counts[r.language] ?? 0) + 1;
+    }
+    return Object.entries(counts)
+      .sort((a, b) => b[1] - a[1])
+      .map(([lang]) => lang);
+  })();
+
   /* Filtering */
   const filtered = repos.filter((repo) => {
     const agent  = assignments[repo.name] ?? "None";
@@ -120,7 +134,8 @@ export default function SpokeTracker() {
       (repo.description ?? "").toLowerCase().includes(search.toLowerCase());
     const matchAgent  = filterAgent  === "All" || agent  === filterAgent;
     const matchStatus = filterStatus === "All" || status === filterStatus;
-    return matchSearch && matchAgent && matchStatus;
+    const matchLang   = filterLang   === "All" || (repo.language ?? "None") === filterLang;
+    return matchSearch && matchAgent && matchStatus && matchLang;
   });
 
   /* Summary counts */
@@ -137,7 +152,7 @@ export default function SpokeTracker() {
     return acc;
   }, {});
 
-  const hasActiveFilters = filterAgent !== "All" || filterStatus !== "All";
+  const hasActiveFilters = filterAgent !== "All" || filterStatus !== "All" || filterLang !== "All";
 
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-5">
@@ -287,10 +302,65 @@ export default function SpokeTracker() {
           </div>
         </div>
 
+        {/* Language filter row */}
+        <div style={{ borderTop: "1px solid oklch(1 0 0 / 6%)" }} className="pt-3">
+          <div
+            className="text-[10px] uppercase tracking-widest mb-2"
+            style={{ color: "oklch(0.42 0.01 264)", fontFamily: "'JetBrains Mono', monospace" }}
+          >
+            → filter by language
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {(["All", ...availableLanguages] as FilterLanguage[]).map((lang) => {
+              const isActive = filterLang === lang;
+              const count = lang === "All"
+                ? repos.length
+                : repos.filter((r) => r.language === lang).length;
+              const dotColor = lang === "All" ? "oklch(0.88 0.18 196)" : (getLanguageColor(lang as string));
+              return (
+                <button
+                  key={lang}
+                  onClick={() => setFilterLang(lang)}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] transition-all"
+                  style={
+                    isActive
+                      ? {
+                          background: `${dotColor}18`,
+                          color: dotColor,
+                          border: `1px solid ${dotColor}55`,
+                          fontFamily: "'JetBrains Mono', monospace",
+                        }
+                      : {
+                          background: "oklch(1 0 0 / 4%)",
+                          color: "oklch(0.52 0.01 264)",
+                          border: "1px solid oklch(1 0 0 / 8%)",
+                          fontFamily: "'JetBrains Mono', monospace",
+                        }
+                  }
+                >
+                  {lang !== "All" && (
+                    <span
+                      className="w-1.5 h-1.5 rounded-full shrink-0"
+                      style={{ background: getLanguageColor(lang as string) }}
+                    />
+                  )}
+                  {lang === "All" ? "all" : lang.toLowerCase()}
+                  <span
+                    className="text-[10px] font-bold px-1 rounded"
+                    style={{ background: "oklch(0 0 0 / 20%)" }}
+                  >
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         {/* Clear filters */}
         {hasActiveFilters && (
           <button
-            onClick={() => { setFilterAgent("All"); setFilterStatus("All"); }}
+            onClick={() => { setFilterAgent("All"); setFilterStatus("All"); setFilterLang("All"); }}
             className="flex items-center gap-1.5 text-[11px] transition-colors hover:text-[oklch(0.88_0.18_196)]"
             style={{ color: "oklch(0.48 0.01 264)", fontFamily: "'JetBrains Mono', monospace" }}
           >
