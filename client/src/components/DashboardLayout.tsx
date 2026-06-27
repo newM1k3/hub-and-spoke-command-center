@@ -21,9 +21,12 @@ import {
   EyeOff,
   Check,
   Trash2,
+  Terminal,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { loadPAT, savePAT, clearPAT } from "@/lib/store";
+import { fetchRepos, GITHUB_USERNAME, type GitHubRepo } from "@/lib/github";
+import CommandPalette from "@/components/CommandPalette";
 
 interface NavItem {
   label: string;
@@ -215,6 +218,27 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const [mobileOpen, setMobileOpen]   = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const settingsRef   = useRef<HTMLDivElement>(null);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [paletteRepos, setPaletteRepos] = useState<GitHubRepo[]>([]);
+
+  // Fetch repos once for the command palette
+  useEffect(() => {
+    fetchRepos(GITHUB_USERNAME)
+      .then(setPaletteRepos)
+      .catch(() => {/* silent — palette works without repos */});
+  }, []);
+
+  // ⌘K / Ctrl+K global toggle
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        setPaletteOpen((p) => !p);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   // Close settings on outside click
   useEffect(() => {
@@ -408,11 +432,26 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             <ExternalLink size={11} />
             github/newM1k3
           </a>
+          {/* ⌘K hint */}
+          <button
+            onClick={() => setPaletteOpen(true)}
+            className="flex items-center gap-2 w-full text-[11px] transition-colors rounded-md px-1 py-1 hover:bg-[oklch(0.165_0.012_264)]"
+            style={{ color: "oklch(0.42 0.01 264)", fontFamily: "'JetBrains Mono', monospace" }}
+          >
+            <Terminal size={11} />
+            <span>command palette</span>
+            <kbd
+              className="ml-auto px-1 py-0.5 rounded text-[9px]"
+              style={{ background: "oklch(1 0 0 / 6%)", border: "1px solid oklch(1 0 0 / 10%)", color: "oklch(0.38 0.01 264)" }}
+            >
+              ⌘K
+            </kbd>
+          </button>
           <div
             className="text-[10px] px-1"
             style={{ color: "oklch(0.32 0.01 264)", fontFamily: "'JetBrains Mono', monospace" }}
           >
-            phase-3 · v0.3.0
+            phase-4 · v0.4.0
           </div>
         </div>
       </aside>
@@ -530,6 +569,15 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
               hub.spoke
             </span>
           </div>
+          {/* Mobile ⌘K button */}
+          <button
+            onClick={() => setPaletteOpen(true)}
+            className="p-1.5 rounded-md"
+            style={{ color: "oklch(0.55 0.01 264)" }}
+            title="Command palette (⌘K)"
+          >
+            <Terminal size={16} />
+          </button>
           {/* Mobile settings gear */}
           <button
             onClick={() => setMobileOpen(true)}
@@ -546,6 +594,13 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           {children}
         </main>
       </div>
+
+      {/* ── Global Command Palette ── */}
+      {paletteOpen && (
+        <div onClick={() => setPaletteOpen(false)}>
+          <CommandPalette repos={paletteRepos} />
+        </div>
+      )}
     </div>
   );
 }

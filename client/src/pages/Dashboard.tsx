@@ -7,6 +7,7 @@
    - Recent commits feed
    ============================================================ */
 import { useEffect, useState } from "react";
+import { useUrlFilters } from "@/hooks/useUrlFilters";
 import {
   GitBranch,
   Star,
@@ -57,8 +58,7 @@ interface RepoWithCommits {
   commits: GitHubCommit[];
 }
 
-type FilterAgent  = AgentName  | "All";
-type FilterStatus = StatusName | "All";
+
 
 function CommitNode() {
   return (
@@ -86,8 +86,7 @@ export default function Dashboard() {
   const [error, setError]                     = useState<string | null>(null);
   const [errorCode, setErrorCode]              = useState<"RATE_LIMIT" | "UNAUTHORIZED" | "UNKNOWN" | null>(null);
   const [lastSynced, setLastSynced]           = useState<Date | null>(null);
-  const [filterAgent, setFilterAgent]         = useState<FilterAgent>("All");
-  const [filterStatus, setFilterStatus]       = useState<FilterStatus>("All");
+  const { agent: filterAgent, status: filterStatus, setAgent: setFilterAgent, setStatus: setFilterStatus, clearAll: clearFilters, hasActive: hasActiveFilters } = useUrlFilters();
 
   async function loadData() {
     setLoading(true);
@@ -158,7 +157,7 @@ export default function Dashboard() {
     return matchAgent && matchStatus;
   });
 
-  const hasActiveFilters = filterAgent !== "All" || filterStatus !== "All";
+
 
   const statCards = [
     {
@@ -373,7 +372,7 @@ export default function Dashboard() {
               <span className="text-[10px] uppercase tracking-wider mr-1" style={{ color: "oklch(0.38 0.01 264)", fontFamily: "'JetBrains Mono', monospace" }}>
                 agent:
               </span>
-              {(["All", ...AGENTS] as FilterAgent[]).map((agent) => {
+              {(["All", ...AGENTS] as (AgentName | "All")[]).map((agent) => {
                 const isActive = filterAgent === agent;
                 return (
                   <button
@@ -397,7 +396,7 @@ export default function Dashboard() {
               <span className="text-[10px] uppercase tracking-wider mr-1" style={{ color: "oklch(0.38 0.01 264)", fontFamily: "'JetBrains Mono', monospace" }}>
                 status:
               </span>
-              {(["All", ...STATUSES] as FilterStatus[]).map((status) => {
+              {(["All", ...STATUSES] as (StatusName | "All")[]).map((status) => {
                 const isActive = filterStatus === status;
                 return (
                   <button
@@ -418,7 +417,7 @@ export default function Dashboard() {
               })}
               {hasActiveFilters && (
                 <button
-                  onClick={() => { setFilterAgent("All"); setFilterStatus("All"); }}
+                  onClick={clearFilters}
                   className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] transition-colors hover:text-[oklch(0.88_0.18_196)]"
                   style={{ color: "oklch(0.42 0.01 264)", fontFamily: "'JetBrains Mono', monospace" }}
                 >
@@ -442,7 +441,7 @@ export default function Dashboard() {
           ) : filteredRepos.length === 0 ? (
             <div className="rounded-xl p-8 text-center" style={{ background: "oklch(0.148 0.012 264)", border: "1px solid oklch(1 0 0 / 5%)" }}>
               <p className="text-xs" style={{ color: "oklch(0.48 0.01 264)", fontFamily: "'JetBrains Mono', monospace" }}>→ no repos match filters</p>
-              <button onClick={() => { setFilterAgent("All"); setFilterStatus("All"); }} className="mt-1.5 text-xs transition-colors hover:text-[oklch(0.88_0.18_196)]" style={{ color: "oklch(0.42 0.01 264)", fontFamily: "'JetBrains Mono', monospace" }}>
+              <button onClick={clearFilters} className="mt-1.5 text-xs transition-colors hover:text-[oklch(0.88_0.18_196)]" style={{ color: "oklch(0.42 0.01 264)", fontFamily: "'JetBrains Mono', monospace" }}>
                 clear filters →
               </button>
             </div>

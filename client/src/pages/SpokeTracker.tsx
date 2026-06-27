@@ -9,6 +9,7 @@
    - All state survives page refresh via localStorage
    ============================================================ */
 import { useEffect, useState } from "react";
+import { useUrlFilters } from "@/hooks/useUrlFilters";
 import {
   GitBranch,
   RefreshCw,
@@ -17,6 +18,7 @@ import {
   Clock,
   Search,
   X,
+  Download,
 } from "lucide-react";
 import {
   Select,
@@ -66,9 +68,7 @@ const AGENT_ACCENT: Record<AgentName, string> = {
   "None":      "oklch(1 0 0 / 6%)",
 };
 
-type FilterAgent   = AgentName  | "All";
-type FilterStatus  = StatusName | "All";
-type FilterLanguage = string    | "All";
+
 
 export default function SpokeTracker() {
   const [repos, setRepos]             = useState<GitHubRepo[]>([]);
@@ -78,9 +78,7 @@ export default function SpokeTracker() {
   const [error, setError]             = useState<string | null>(null);
   const [errorCode, setErrorCode]     = useState<"RATE_LIMIT" | "UNAUTHORIZED" | "UNKNOWN" | null>(null);
   const [search, setSearch]           = useState("");
-  const [filterAgent, setFilterAgent]     = useState<FilterAgent>("All");
-  const [filterStatus, setFilterStatus]   = useState<FilterStatus>("All");
-  const [filterLang, setFilterLang]       = useState<FilterLanguage>("All");
+  const { agent: filterAgent, status: filterStatus, lang: filterLang, setAgent: setFilterAgent, setStatus: setFilterStatus, setLang: setFilterLang, clearAll: clearFilters, hasActive: hasActiveFilters } = useUrlFilters();
 
   /* Load localStorage on mount */
   useEffect(() => {
@@ -167,7 +165,29 @@ export default function SpokeTracker() {
     return acc;
   }, {});
 
-  const hasActiveFilters = filterAgent !== "All" || filterStatus !== "All" || filterLang !== "All";
+  /* CSV Export */
+  function exportCSV() {
+    const headers = ["repo", "description", "language", "agent", "status", "stars", "pushed_at", "url"];
+    const rows = repos.map((r) => [
+      r.name,
+      (r.description ?? "").replace(/,/g, ";"),
+      r.language ?? "",
+      assignments[r.name] ?? "None",
+      statuses[r.name]    ?? "None",
+      String(r.stargazers_count ?? 0),
+      r.pushed_at ? new Date(r.pushed_at).toISOString().split("T")[0] : "",
+      r.html_url,
+    ]);
+    const csv = [headers, ...rows].map((row) => row.join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href     = url;
+    a.download = `hub-spoke-${new Date().toISOString().split("T")[0]}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success("→ export complete", { description: `${repos.length} repos · CSV`, duration: 2000 });
+  }
 
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-5">
@@ -188,20 +208,40 @@ export default function SpokeTracker() {
             → {assignedCount}/{repos.length} agents mapped · {deployedCount} deployed
           </p>
         </div>
-        <button
-          onClick={loadRepos}
-          disabled={loading}
-          className="flex items-center gap-2 px-3 py-2 rounded-md text-xs transition-all"
-          style={{
-            background: "oklch(0.165 0.012 264)",
-            border: "1px solid oklch(1 0 0 / 8%)",
-            color: "oklch(0.65 0.01 264)",
-            fontFamily: "'JetBrains Mono', monospace",
-          }}
-        >
-          <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
-          sync
-        </button>
+        <div className="flex items-center gap-2">
+          {/* CSV Export */}
+          <button
+            onClick={exportCSV}
+            disabled={repos.length === 0}
+            className="flex items-center gap-2 px-3 py-2 rounded-md text-xs transition-all"
+            style={{
+              background: "oklch(0.88 0.18 196 / 8%)",
+              border: "1px solid oklch(0.88 0.18 196 / 20%)",
+              color: repos.length > 0 ? "oklch(0.88 0.18 196)" : "oklch(0.38 0.01 264)",
+              fontFamily: "'JetBrains Mono', monospace",
+              cursor: repos.length > 0 ? "pointer" : "not-allowed",
+            }}
+            title="Export to CSV"
+          >
+            <Download size={13} />
+            export
+          </button>
+          {/* Sync */}
+          <button
+            onClick={loadRepos}
+            disabled={loading}
+            className="flex items-center gap-2 px-3 py-2 rounded-md text-xs transition-all"
+            style={{
+              background: "oklch(0.165 0.012 264)",
+              border: "1px solid oklch(1 0 0 / 8%)",
+              color: "oklch(0.65 0.01 264)",
+              fontFamily: "'JetBrains Mono', monospace",
+            }}
+          >
+            <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
+            sync
+          </button>
+        </div>
       </div>
 
       {/* ── Dual Filter Bar ── */}
@@ -221,7 +261,7 @@ export default function SpokeTracker() {
             → filter by agent
           </div>
           <div className="flex flex-wrap gap-1.5">
-            {(["All", ...AGENTS] as FilterAgent[]).map((agent) => {
+            {(["All", ...AGENTS] as (AgentName | "All")[]).map((agent) => {
               const isActive = filterAgent === agent;
               const count = agent === "All" ? repos.length : (agentCounts[agent as AgentName] ?? 0);
               return (
@@ -275,7 +315,7 @@ export default function SpokeTracker() {
             → filter by status
           </div>
           <div className="flex flex-wrap gap-1.5">
-            {(["All", ...STATUSES] as FilterStatus[]).map((status) => {
+            {(["All", ...STATUSES] as (StatusName | "All")[]).map((status) => {
               const isActive = filterStatus === status;
               const count = status === "All" ? repos.length : (statusCounts[status as StatusName] ?? 0);
               return (
@@ -326,7 +366,7 @@ export default function SpokeTracker() {
             → filter by language
           </div>
           <div className="flex flex-wrap gap-1.5">
-            {(["All", ...availableLanguages] as FilterLanguage[]).map((lang) => {
+            {(["All", ...availableLanguages] as (string | "All")[]).map((lang) => {
               const isActive = filterLang === lang;
               const count = lang === "All"
                 ? repos.length
@@ -375,7 +415,7 @@ export default function SpokeTracker() {
         {/* Clear filters */}
         {hasActiveFilters && (
           <button
-            onClick={() => { setFilterAgent("All"); setFilterStatus("All"); setFilterLang("All"); }}
+            onClick={clearFilters}
             className="flex items-center gap-1.5 text-[11px] transition-colors hover:text-[oklch(0.88_0.18_196)]"
             style={{ color: "oklch(0.48 0.01 264)", fontFamily: "'JetBrains Mono', monospace" }}
           >
@@ -504,7 +544,7 @@ export default function SpokeTracker() {
           </p>
           {hasActiveFilters && (
             <button
-              onClick={() => { setFilterAgent("All"); setFilterStatus("All"); setSearch(""); }}
+              onClick={() => { clearFilters(); setSearch(""); }}
               className="mt-2 text-xs transition-colors hover:text-[oklch(0.88_0.18_196)]"
               style={{ color: "oklch(0.42 0.01 264)", fontFamily: "'JetBrains Mono', monospace" }}
             >
