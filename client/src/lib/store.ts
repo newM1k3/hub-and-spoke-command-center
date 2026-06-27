@@ -155,6 +155,36 @@ export function saveSortPreference(key: SortKey, dir: SortDir): void {
   localStorage.setItem(SORT_DIR_KEY, dir);
 }
 
+// ── Netlify Build Hooks ───────────────────────────────────────
+
+const BUILD_HOOKS_KEY = "hs_build_hooks";
+
+export function loadBuildHooks(): Record<string, string> {
+  try {
+    const raw = localStorage.getItem(BUILD_HOOKS_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+export function saveBuildHooks(hooks: Record<string, string>): void {
+  localStorage.setItem(BUILD_HOOKS_KEY, JSON.stringify(hooks));
+}
+
+/**
+ * Fires a Netlify build hook URL via POST.
+ * Returns true on success (2xx), false on network or HTTP error.
+ */
+export async function triggerNetlifyBuild(url: string): Promise<boolean> {
+  try {
+    const res = await fetch(url, { method: "POST" });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 // ── Prompt Vault ───────────────────────────────────────────────
 
 export interface Prompt {

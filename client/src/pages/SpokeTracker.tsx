@@ -43,6 +43,9 @@ import {
   saveAssignments,
   loadStatuses,
   saveStatuses,
+  loadBuildHooks,
+  saveBuildHooks,
+  triggerNetlifyBuild,
   loadSortPreference,
   saveSortPreference,
   AGENTS,
@@ -54,6 +57,7 @@ import {
   type StatusName,
   type SortKey,
 } from "@/lib/store";
+import WebhookConfig from "@/components/WebhookConfig";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import LanguageBar from "@/components/analytics/LanguageBar";
@@ -80,6 +84,7 @@ export default function SpokeTracker() {
   const [repos, setRepos]             = useState<GitHubRepo[]>([]);
   const [assignments, setAssignments] = useState<Record<string, AgentName>>({});
   const [statuses, setStatuses]       = useState<Record<string, StatusName>>({});
+  const [buildHooks, setBuildHooks]   = useState<Record<string, string>>({});
   const [loading, setLoading]         = useState(true);
   const [error, setError]             = useState<string | null>(null);
   const [errorCode, setErrorCode]     = useState<"RATE_LIMIT" | "UNAUTHORIZED" | "UNKNOWN" | null>(null);
@@ -104,6 +109,7 @@ export default function SpokeTracker() {
   useEffect(() => {
     setAssignments(loadAssignments());
     setStatuses(loadStatuses());
+    setBuildHooks(loadBuildHooks());
   }, []);
 
   async function loadRepos() {
@@ -137,13 +143,38 @@ export default function SpokeTracker() {
     }
   }
 
-  function handleStatus(repoName: string, status: StatusName) {
+  async function handleStatus(repoName: string, status: StatusName) {
     const updated = { ...statuses, [repoName]: status };
     setStatuses(updated);
     saveStatuses(updated);
     if (status !== "None") {
       toast.success(`→ ${repoName}`, { description: `status: ${status}`, duration: 1800 });
     }
+    // Auto-fire build hook when status changes to Deployed
+    if (status === "Deployed") {
+      const hookUrl = (buildHooks[repoName] ?? "").trim();
+      if (hookUrl) {
+        toast.info("dispatching Netlify build hook…", { duration: 2000 });
+        const ok = await triggerNetlifyBuild(hookUrl);
+        if (ok) {
+          toast.success("Netlify build sequence initialized successfully.", {
+            description: repoName,
+            duration: 4000,
+          });
+        } else {
+          toast.error("build hook communication failed. check configuration.", {
+            description: repoName,
+            duration: 5000,
+          });
+        }
+      }
+    }
+  }
+
+  function handleSaveHook(repoName: string, url: string) {
+    const updated = { ...buildHooks, [repoName]: url };
+    setBuildHooks(updated);
+    saveBuildHooks(updated);
   }
 
   /* Derive unique languages from fetched repos (sorted by count) */
@@ -727,7 +758,7 @@ export default function SpokeTracker() {
                     </div>
                   </div>
 
-                  {/* Dropdowns — stacked on mobile, side-by-side on sm+ */}
+                  {/* Dropdowns + Webhook — stacked on mobile, side-by-side on sm+ */}
                   <div className="flex flex-col sm:flex-row items-end sm:items-center gap-1.5 shrink-0">
                     {/* Agent selector */}
                     <Select
@@ -788,6 +819,13 @@ export default function SpokeTracker() {
                         ))}
                       </SelectContent>
                     </Select>
+
+                    {/* Webhook config */}
+                    <WebhookConfig
+                      repoName={repo.name}
+                      hookUrl={buildHooks[repo.name] ?? ""}
+                      onSave={(url) => handleSaveHook(repo.name, url)}
+                    />
                   </div>
                 </div>
               </div>

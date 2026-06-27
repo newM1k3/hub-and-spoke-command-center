@@ -43,6 +43,8 @@ import {
 import {
   loadAssignments,
   loadStatuses,
+  loadBuildHooks,
+  saveBuildHooks,
   AGENTS,
   STATUSES,
   AGENT_BADGE_CLASS,
@@ -50,6 +52,7 @@ import {
   type AgentName,
   type StatusName,
 } from "@/lib/store";
+import WebhookConfig from "@/components/WebhookConfig";
 import { cn } from "@/lib/utils";
 import ActivityHeatmap from "@/components/analytics/ActivityHeatmap";
 import LanguageBar from "@/components/analytics/LanguageBar";
@@ -89,6 +92,7 @@ export default function Dashboard() {
   const [errorCode, setErrorCode]              = useState<"RATE_LIMIT" | "UNAUTHORIZED" | "UNKNOWN" | null>(null);
   const [lastSynced, setLastSynced]           = useState<Date | null>(null);
   const [focusMode, setFocusMode]             = useState(false);
+  const [buildHooks, setBuildHooks]           = useState<Record<string, string>>({});
   const { agent: filterAgent, status: filterStatus, setAgent: setFilterAgent, setStatus: setFilterStatus, clearAll: clearFilters, hasActive: hasActiveFilters } = useUrlFilters();
 
   async function loadData() {
@@ -105,6 +109,7 @@ export default function Dashboard() {
       setRepos(repoData);
       setAssignments(loadAssignments());
       setStatuses(loadStatuses());
+      setBuildHooks(loadBuildHooks());
 
       const topRepos = repoData.slice(0, 5);
       const withCommits = await Promise.all(
@@ -139,6 +144,7 @@ export default function Dashboard() {
     function onFocus() {
       setAssignments(loadAssignments());
       setStatuses(loadStatuses());
+      setBuildHooks(loadBuildHooks());
     }
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
@@ -537,7 +543,7 @@ export default function Dashboard() {
                         <LanguageBar repoName={repo.name} />
                       </div>
 
-                      {/* Agent + Status badges */}
+                      {/* Agent + Status badges + Webhook icon */}
                       <div className="flex flex-col items-end gap-1 shrink-0">
                         <span className={cn("text-[11px] px-2 py-0.5 rounded-full", AGENT_BADGE_CLASS[agent])} style={{ fontFamily: "'JetBrains Mono', monospace" }}>
                           {agent === "None" ? "no agent" : agent.toLowerCase()}
@@ -545,6 +551,15 @@ export default function Dashboard() {
                         <span className={cn("text-[11px] px-2 py-0.5 rounded-full", STATUS_BADGE_CLASS[status])} style={{ fontFamily: "'JetBrains Mono', monospace" }}>
                           {status === "None" ? "no status" : status.toLowerCase()}
                         </span>
+                        <WebhookConfig
+                          repoName={repo.name}
+                          hookUrl={buildHooks[repo.name] ?? ""}
+                          onSave={(url) => {
+                            const updated = { ...buildHooks, [repo.name]: url };
+                            setBuildHooks(updated);
+                            saveBuildHooks(updated);
+                          }}
+                        />
                       </div>
                     </div>
                   </div>
