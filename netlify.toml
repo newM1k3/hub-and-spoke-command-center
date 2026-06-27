@@ -1,0 +1,32 @@
+# ============================================================
+# netlify.toml — Hub-and-Spoke Command Center
+# Build: Vite + React (client/ directory)
+# Publish: dist/
+# Routing: SPA redirect (/* → /index.html)
+# ============================================================
+
+[build]
+  # Run build from the client/ subdirectory
+  base    = "client"
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+# ── SPA Client-Side Routing ──────────────────────────────────
+# All routes are handled by React Router (wouter).
+# Without this redirect, refreshing /spoke-tracker would 404.
+[[redirects]]
+  from   = "/*"
+  to     = "/index.html"
+  status = 200
+
+# ── Security Headers ─────────────────────────────────────────
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options        = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy        = "strict-origin-when-cross-origin"
+    Permissions-Policy     = "camera=(), microphone=(), geolocation=()"

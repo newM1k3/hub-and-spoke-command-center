@@ -1,0 +1,11 @@
+# ============================================================
+# Hub-and-Spoke Command Center — Environment Variables Example
+# Rename/copy this to client/.env and fill in your values.
+# NEVER commit .env to git.
+# ============================================================
+
+# GitHub Personal Access Token
+# Scope required: public_repo (read-only)
+# Generate at: https://github.com/settings/tokens
+# Without this, GitHub API is limited to 60 req/hr (unauthenticated)
+VITE_GITHUB_TOKEN=ghp_your_token_here
