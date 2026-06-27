@@ -22,6 +22,8 @@ import {
   Check,
   Trash2,
   Terminal,
+  AlertCircle,
+  RefreshCw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { loadPAT, savePAT, clearPAT } from "@/lib/store";
@@ -61,14 +63,48 @@ interface PATSettingsProps {
 }
 
 function PATSettings({ onClose }: PATSettingsProps) {
-  const [value, setValue]     = useState(() => loadPAT());
-  const [show, setShow]       = useState(false);
-  const [saved, setSaved]     = useState(false);
-  const inputRef              = useRef<HTMLInputElement>(null);
+  const [value, setValue]       = useState(() => loadPAT());
+  const [show, setShow]         = useState(false);
+  const [saved, setSaved]       = useState(false);
+  const [validating, setValidating] = useState(false);
+  // null = not yet validated, true = valid, false = invalid
+  const [validState, setValidState] = useState<boolean | null>(null);
+  const [validUser, setValidUser]   = useState<string | null>(null);
+  const inputRef                = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
+
+  // Reset validation state when user edits the token
+  function handleChange(v: string) {
+    setValue(v);
+    setValidState(null);
+    setValidUser(null);
+  }
+
+  async function handleValidate() {
+    if (!value.trim()) return;
+    setValidating(true);
+    setValidState(null);
+    setValidUser(null);
+    try {
+      const res = await fetch("https://api.github.com/user", {
+        headers: { Authorization: `token ${value.trim()}`, "X-GitHub-Api-Version": "2022-11-28" },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setValidState(true);
+        setValidUser(data.login ?? null);
+      } else {
+        setValidState(false);
+      }
+    } catch {
+      setValidState(false);
+    } finally {
+      setValidating(false);
+    }
+  }
 
   function handleSave() {
     savePAT(value);
@@ -76,7 +112,6 @@ function PATSettings({ onClose }: PATSettingsProps) {
     setTimeout(() => {
       setSaved(false);
       onClose?.();
-      // Reload so the new token is picked up by github.ts
       window.location.reload();
     }, 900);
   }
@@ -85,6 +120,8 @@ function PATSettings({ onClose }: PATSettingsProps) {
     clearPAT();
     setValue("");
     setSaved(false);
+    setValidState(null);
+    setValidUser(null);
   }
 
   const hasSavedToken = !!loadPAT();
@@ -129,21 +166,27 @@ function PATSettings({ onClose }: PATSettingsProps) {
           ref={inputRef}
           type={show ? "text" : "password"}
           value={value}
-          onChange={(e) => setValue(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && handleSave()}
+          onChange={(e) => handleChange(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && handleValidate()}
           placeholder="ghp_xxxxxxxxxxxx"
           className="w-full rounded-md px-2.5 py-1.5 pr-8 text-[11px] outline-none transition-all"
           style={{
             background: "oklch(0.14 0.01 264)",
-            border: "1px solid oklch(1 0 0 / 10%)",
+            border: validState === true
+              ? "1px solid oklch(0.72 0.18 145 / 60%)"
+              : validState === false
+              ? "1px solid oklch(0.75 0.22 25 / 60%)"
+              : "1px solid oklch(1 0 0 / 10%)",
             color: "oklch(0.85 0.005 264)",
             fontFamily: "'JetBrains Mono', monospace",
           }}
           onFocus={(e) => {
-            (e.target as HTMLInputElement).style.borderColor = "oklch(0.88 0.18 196 / 40%)";
+            if (validState === null)
+              (e.target as HTMLInputElement).style.borderColor = "oklch(0.88 0.18 196 / 40%)";
           }}
           onBlur={(e) => {
-            (e.target as HTMLInputElement).style.borderColor = "oklch(1 0 0 / 10%)";
+            if (validState === null)
+              (e.target as HTMLInputElement).style.borderColor = "oklch(1 0 0 / 10%)";
           }}
         />
         <button
@@ -156,8 +199,26 @@ function PATSettings({ onClose }: PATSettingsProps) {
         </button>
       </div>
 
-      {/* Status indicator */}
-      {hasSavedToken && !value && (
+      {/* Validation result indicator */}
+      {validState === true && (
+        <div
+          className="text-[10px] flex items-center gap-1.5"
+          style={{ color: "oklch(0.72 0.18 145)", fontFamily: "'JetBrains Mono', monospace" }}
+        >
+          <Check size={10} />
+          valid token{validUser ? ` · @${validUser}` : ""}
+        </div>
+      )}
+      {validState === false && (
+        <div
+          className="text-[10px] flex items-center gap-1.5"
+          style={{ color: "oklch(0.75 0.22 25)", fontFamily: "'JetBrains Mono', monospace" }}
+        >
+          <AlertCircle size={10} />
+          invalid token — check scopes or expiry
+        </div>
+      )}
+      {validState === null && hasSavedToken && !value && (
         <div
           className="text-[10px] flex items-center gap-1"
           style={{ color: "oklch(0.72 0.18 145)", fontFamily: "'JetBrains Mono', monospace" }}
@@ -168,26 +229,59 @@ function PATSettings({ onClose }: PATSettingsProps) {
 
       {/* Actions */}
       <div className="flex items-center gap-2">
-        <button
-          onClick={handleSave}
-          disabled={!value.trim()}
-          className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md text-[11px] font-medium transition-all"
-          style={{
-            background: value.trim()
-              ? "oklch(0.88 0.18 196 / 15%)"
-              : "oklch(1 0 0 / 4%)",
-            color: value.trim()
-              ? "oklch(0.88 0.18 196)"
-              : "oklch(0.38 0.01 264)",
-            border: value.trim()
-              ? "1px solid oklch(0.88 0.18 196 / 30%)"
-              : "1px solid oklch(1 0 0 / 6%)",
-            fontFamily: "'JetBrains Mono', monospace",
-            cursor: value.trim() ? "pointer" : "not-allowed",
-          }}
-        >
-          {saved ? <><Check size={11} /> saved</> : "save + reload"}
-        </button>
+        {/* Validate button — shown when token is typed but not yet validated */}
+        {value.trim() && validState === null && (
+          <button
+            onClick={handleValidate}
+            disabled={validating}
+            className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md text-[11px] font-medium transition-all"
+            style={{
+              background: "oklch(0.72 0.18 196 / 12%)",
+              color: validating ? "oklch(0.45 0.01 264)" : "oklch(0.78 0.12 196)",
+              border: "1px solid oklch(0.72 0.18 196 / 25%)",
+              fontFamily: "'JetBrains Mono', monospace",
+            }}
+          >
+            {validating ? (
+              <><RefreshCw size={10} className="animate-spin" /> validating...</>
+            ) : (
+              "validate token"
+            )}
+          </button>
+        )}
+
+        {/* Save button — shown after successful validation or if already has a saved token */}
+        {(validState === true || (hasSavedToken && !value.trim())) && (
+          <button
+            onClick={handleSave}
+            disabled={!value.trim() && !hasSavedToken}
+            className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md text-[11px] font-medium transition-all"
+            style={{
+              background: "oklch(0.72 0.18 145 / 15%)",
+              color: "oklch(0.72 0.18 145)",
+              border: "1px solid oklch(0.72 0.18 145 / 30%)",
+              fontFamily: "'JetBrains Mono', monospace",
+            }}
+          >
+            {saved ? <><Check size={11} /> saved</> : "save + reload"}
+          </button>
+        )}
+
+        {/* Invalid — allow re-entry */}
+        {validState === false && (
+          <button
+            onClick={() => { setValidState(null); setValue(""); inputRef.current?.focus(); }}
+            className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md text-[11px] font-medium transition-all"
+            style={{
+              background: "oklch(0.75 0.22 25 / 10%)",
+              color: "oklch(0.75 0.22 25 / 80%)",
+              border: "1px solid oklch(0.75 0.22 25 / 20%)",
+              fontFamily: "'JetBrains Mono', monospace",
+            }}
+          >
+            try again
+          </button>
+        )}
 
         {hasSavedToken && (
           <button

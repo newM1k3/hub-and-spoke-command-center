@@ -8,7 +8,7 @@
    - Triple filter bar: Agent + Status + Language
    - All state survives page refresh via localStorage
    ============================================================ */
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useUrlFilters } from "@/hooks/useUrlFilters";
 import {
   GitBranch,
@@ -19,6 +19,9 @@ import {
   Search,
   X,
   Download,
+  ArrowUpDown,
+  Star,
+  CalendarClock,
 } from "lucide-react";
 import {
   Select,
@@ -78,7 +81,18 @@ export default function SpokeTracker() {
   const [error, setError]             = useState<string | null>(null);
   const [errorCode, setErrorCode]     = useState<"RATE_LIMIT" | "UNAUTHORIZED" | "UNKNOWN" | null>(null);
   const [search, setSearch]           = useState("");
+  const [sortKey, setSortKey]          = useState<"pushed" | "stars" | "agent" | "status">("pushed");
+  const [sortDir, setSortDir]          = useState<"asc" | "desc">("desc");
   const { agent: filterAgent, status: filterStatus, lang: filterLang, setAgent: setFilterAgent, setStatus: setFilterStatus, setLang: setFilterLang, clearAll: clearFilters, hasActive: hasActiveFilters } = useUrlFilters();
+
+  function toggleSort(key: typeof sortKey) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "desc" ? "asc" : "desc"));
+    } else {
+      setSortKey(key);
+      setSortDir("desc");
+    }
+  }
 
   /* Load localStorage on mount */
   useEffect(() => {
@@ -164,6 +178,24 @@ export default function SpokeTracker() {
     acc[s] = repos.filter((r) => (statuses[r.name] ?? "None") === s).length;
     return acc;
   }, {});
+
+  /* Sort filtered repos */
+  const STATUS_ORDER: Record<string, number> = { Deployed: 0, Debugging: 1, "Vibe Coding": 2, Idea: 3, None: 4 };
+  const AGENT_ORDER: Record<string, number> = AGENTS.reduce<Record<string, number>>((acc, a, i) => { acc[a] = i; return acc; }, { None: AGENTS.length });
+
+  const sorted = [...filtered].sort((a, b) => {
+    let cmp = 0;
+    if (sortKey === "pushed") {
+      cmp = new Date(a.pushed_at ?? 0).getTime() - new Date(b.pushed_at ?? 0).getTime();
+    } else if (sortKey === "stars") {
+      cmp = (a.stargazers_count ?? 0) - (b.stargazers_count ?? 0);
+    } else if (sortKey === "agent") {
+      cmp = (AGENT_ORDER[assignments[a.name] ?? "None"] ?? 99) - (AGENT_ORDER[assignments[b.name] ?? "None"] ?? 99);
+    } else if (sortKey === "status") {
+      cmp = (STATUS_ORDER[statuses[a.name] ?? "None"] ?? 99) - (STATUS_ORDER[statuses[b.name] ?? "None"] ?? 99);
+    }
+    return sortDir === "desc" ? -cmp : cmp;
+  });
 
   /* CSV Export */
   function exportCSV() {
@@ -448,6 +480,48 @@ export default function SpokeTracker() {
         />
       </div>
 
+      {/* ── Sort Controls ── */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <span
+          className="text-[10px] uppercase tracking-widest mr-1"
+          style={{ color: "oklch(0.38 0.01 264)", fontFamily: "'JetBrains Mono', monospace" }}
+        >
+          sort:
+        </span>
+        {([
+          { key: "pushed", label: "last pushed", icon: <CalendarClock size={11} /> },
+          { key: "stars",  label: "stars",       icon: <Star size={11} /> },
+          { key: "agent",  label: "agent",       icon: <ArrowUpDown size={11} /> },
+          { key: "status", label: "status",      icon: <ArrowUpDown size={11} /> },
+        ] as { key: typeof sortKey; label: string; icon: React.ReactNode }[]).map(({ key, label, icon }) => {
+          const isActive = sortKey === key;
+          return (
+            <button
+              key={key}
+              onClick={() => toggleSort(key)}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] transition-all"
+              style={isActive ? {
+                background: "oklch(0.88 0.18 196 / 12%)",
+                color: "oklch(0.88 0.18 196)",
+                border: "1px solid oklch(0.88 0.18 196 / 30%)",
+                fontFamily: "'JetBrains Mono', monospace",
+              } : {
+                background: "oklch(1 0 0 / 4%)",
+                color: "oklch(0.48 0.01 264)",
+                border: "1px solid oklch(1 0 0 / 8%)",
+                fontFamily: "'JetBrains Mono', monospace",
+              }}
+            >
+              {icon}
+              {label}
+              {isActive && (
+                <span style={{ opacity: 0.7 }}>{sortDir === "desc" ? "↓" : "↑"}</span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
       {/* ── Error ── */}
       {error && (
         <div
@@ -554,7 +628,7 @@ export default function SpokeTracker() {
         </div>
       ) : (
         <div className="space-y-1.5">
-          {filtered.map((repo, i) => {
+          {sorted.map((repo, i) => {
             const currentAgent  = assignments[repo.name] ?? "None";
             const currentStatus = statuses[repo.name]    ?? "None";
             const agentBadge    = AGENT_BADGE_CLASS[currentAgent];
