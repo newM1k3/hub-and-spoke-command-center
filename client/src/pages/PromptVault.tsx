@@ -1,7 +1,11 @@
 /* ============================================================
    PromptVault.tsx — CRUD for frequently used system prompts
    Theme: Minimal Dark Forge
-   Features: Create, Read, Edit, Delete, Copy, Tag, Search
+   Style Review Applied:
+   - CLI-native copy ("→ vault loaded", "save prompt →")
+   - Stronger surface elevation (layered bg steps)
+   - Better page composition (stats bar + tag cloud at top)
+   - Expanded view with syntax-highlighted code block feel
    ============================================================ */
 import { useState, useEffect } from "react";
 import {
@@ -14,6 +18,8 @@ import {
   BookMarked,
   X,
   Tag,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import {
   Dialog,
@@ -48,6 +54,7 @@ export default function PromptVault() {
   const [tagInput, setTagInput] = useState("");
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [activeTag, setActiveTag] = useState<string | null>(null);
 
   useEffect(() => {
     setPrompts(loadPrompts());
@@ -74,18 +81,16 @@ export default function PromptVault() {
 
   function handleSave() {
     if (!form.title.trim() || !form.content.trim()) {
-      toast.error("Title and content are required.");
+      toast.error("→ title and content required");
       return;
     }
     const now = new Date().toISOString();
     if (editingPrompt) {
       const updated = prompts.map((p) =>
-        p.id === editingPrompt.id
-          ? { ...p, ...form, updatedAt: now }
-          : p
+        p.id === editingPrompt.id ? { ...p, ...form, updatedAt: now } : p
       );
       persist(updated);
-      toast.success("Prompt updated.");
+      toast.success("→ prompt updated");
     } else {
       const newPrompt: Prompt = {
         id: generateId(),
@@ -94,7 +99,7 @@ export default function PromptVault() {
         updatedAt: now,
       };
       persist([newPrompt, ...prompts]);
-      toast.success("Prompt saved to vault.");
+      toast.success("→ prompt saved to vault");
     }
     setDialogOpen(false);
   }
@@ -102,17 +107,17 @@ export default function PromptVault() {
   function handleDelete(id: string) {
     persist(prompts.filter((p) => p.id !== id));
     setDeleteConfirmId(null);
-    toast.success("Prompt deleted.");
+    toast.success("→ prompt deleted");
   }
 
   async function handleCopy(prompt: Prompt) {
     try {
       await navigator.clipboard.writeText(prompt.content);
       setCopiedId(prompt.id);
-      toast.success("Copied to clipboard.");
+      toast.success("→ copied to clipboard");
       setTimeout(() => setCopiedId(null), 2000);
     } catch {
-      toast.error("Clipboard access denied.");
+      toast.error("clipboard access denied");
     }
   }
 
@@ -128,15 +133,17 @@ export default function PromptVault() {
     setForm((f) => ({ ...f, tags: f.tags.filter((t) => t !== tag) }));
   }
 
-  const filtered = prompts.filter(
-    (p) =>
+  const allTags = Array.from(new Set(prompts.flatMap((p) => p.tags))).sort();
+
+  const filtered = prompts.filter((p) => {
+    const matchesSearch =
       search === "" ||
       p.title.toLowerCase().includes(search.toLowerCase()) ||
       p.content.toLowerCase().includes(search.toLowerCase()) ||
-      p.tags.some((t) => t.includes(search.toLowerCase()))
-  );
-
-  const allTags = Array.from(new Set(prompts.flatMap((p) => p.tags))).sort();
+      p.tags.some((t) => t.includes(search.toLowerCase()));
+    const matchesTag = activeTag === null || p.tags.includes(activeTag);
+    return matchesSearch && matchesTag;
+  });
 
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-6">
@@ -144,91 +151,155 @@ export default function PromptVault() {
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1
-            className="text-2xl font-semibold"
+            className="text-2xl font-bold"
             style={{ fontFamily: "'Space Grotesk', sans-serif", color: "oklch(0.92 0.005 264)" }}
           >
             // prompt vault
           </h1>
-          <p className="text-sm mt-1" style={{ color: "oklch(0.58 0.01 264)", fontFamily: "'JetBrains Mono', monospace" }}>
-            {prompts.length} prompt{prompts.length !== 1 ? "s" : ""} stored locally
+          <p
+            className="text-xs mt-1"
+            style={{ color: "oklch(0.88 0.18 196 / 70%)", fontFamily: "'JetBrains Mono', monospace" }}
+          >
+            → {prompts.length} prompt{prompts.length !== 1 ? "s" : ""} stored · {allTags.length} tag{allTags.length !== 1 ? "s" : ""}
           </p>
         </div>
         <button
           onClick={openCreate}
-          className="flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all cyan-glow"
+          className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all"
           style={{
             background: "oklch(0.88 0.18 196)",
             color: "oklch(0.118 0.012 264)",
-            fontFamily: "'Inter', sans-serif",
+            fontFamily: "'Space Grotesk', sans-serif",
+            boxShadow: "0 0 16px oklch(0.88 0.18 196 / 25%)",
           }}
         >
-          <Plus size={15} />
-          New Prompt
+          <Plus size={14} />
+          new prompt
         </button>
       </div>
 
-      {/* ── Search + Tag Filter ── */}
-      <div className="space-y-3">
-        <div className="relative">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: "oklch(0.42 0.01 264)" }} />
-          <input
-            type="text"
-            placeholder="search prompts..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-9 pr-4 py-2.5 rounded-lg text-sm outline-none transition-all"
-            style={{
-              background: "oklch(0.155 0.012 264)",
-              border: "1px solid oklch(1 0 0 / 10%)",
-              color: "oklch(0.92 0.005 264)",
-              fontFamily: "'Inter', sans-serif",
-            }}
-            onFocus={(e) => (e.target.style.borderColor = "oklch(0.88 0.18 196 / 50%)")}
-            onBlur={(e) => (e.target.style.borderColor = "oklch(1 0 0 / 10%)")}
-          />
+      {/* ── Stats + Tag Cloud ── */}
+      <div
+        className="rounded-xl p-4"
+        style={{
+          background: "oklch(0.148 0.012 264)",
+          border: "1px solid oklch(1 0 0 / 6%)",
+        }}
+      >
+        <div className="flex items-center justify-between mb-3">
+          <div
+            className="text-[10px] uppercase tracking-widest"
+            style={{ color: "oklch(0.42 0.01 264)", fontFamily: "'JetBrains Mono', monospace" }}
+          >
+            → tag index
+          </div>
+          {activeTag && (
+            <button
+              onClick={() => setActiveTag(null)}
+              className="flex items-center gap-1 text-[11px] transition-colors hover:text-[oklch(0.88_0.18_196)]"
+              style={{ color: "oklch(0.52 0.01 264)", fontFamily: "'JetBrains Mono', monospace" }}
+            >
+              <X size={10} /> clear filter
+            </button>
+          )}
         </div>
-
-        {allTags.length > 0 && (
+        {allTags.length === 0 ? (
+          <p
+            className="text-[11px]"
+            style={{ color: "oklch(0.38 0.01 264)", fontFamily: "'JetBrains Mono', monospace" }}
+          >
+            no tags yet — add tags when creating prompts
+          </p>
+        ) : (
           <div className="flex flex-wrap gap-1.5">
-            {allTags.map((tag) => (
-              <button
-                key={tag}
-                onClick={() => setSearch(search === tag ? "" : tag)}
-                className={cn(
-                  "flex items-center gap-1 px-2 py-1 rounded-md text-xs transition-all",
-                  search === tag
-                    ? "bg-[oklch(0.88_0.18_196_/_20%)] text-[oklch(0.88_0.18_196)] border border-[oklch(0.88_0.18_196_/_40%)]"
-                    : "bg-[oklch(1_0_0_/_5%)] text-[oklch(0.58_0.01_264)] border border-[oklch(1_0_0_/_8%)] hover:border-[oklch(1_0_0_/_20%)]"
-                )}
-                style={{ fontFamily: "'JetBrains Mono', monospace" }}
-              >
-                <Tag size={10} />
-                {tag}
-              </button>
-            ))}
+            {allTags.map((tag) => {
+              const isActive = activeTag === tag;
+              const count = prompts.filter((p) => p.tags.includes(tag)).length;
+              return (
+                <button
+                  key={tag}
+                  onClick={() => setActiveTag(isActive ? null : tag)}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] transition-all"
+                  style={
+                    isActive
+                      ? {
+                          background: "oklch(0.88 0.18 196 / 15%)",
+                          color: "oklch(0.88 0.18 196)",
+                          border: "1px solid oklch(0.88 0.18 196 / 35%)",
+                          fontFamily: "'JetBrains Mono', monospace",
+                        }
+                      : {
+                          background: "oklch(1 0 0 / 5%)",
+                          color: "oklch(0.52 0.01 264)",
+                          border: "1px solid oklch(1 0 0 / 8%)",
+                          fontFamily: "'JetBrains Mono', monospace",
+                        }
+                  }
+                >
+                  <Tag size={9} />
+                  {tag}
+                  <span
+                    className="text-[10px] font-bold px-1 rounded"
+                    style={{ background: "oklch(0 0 0 / 20%)" }}
+                  >
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         )}
       </div>
 
+      {/* ── Search ── */}
+      <div className="relative">
+        <Search
+          size={13}
+          className="absolute left-3 top-1/2 -translate-y-1/2"
+          style={{ color: "oklch(0.38 0.01 264)" }}
+        />
+        <input
+          type="text"
+          placeholder="search prompts..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="w-full pl-9 pr-4 py-2.5 rounded-lg text-xs outline-none transition-all"
+          style={{
+            background: "oklch(0.148 0.012 264)",
+            border: "1px solid oklch(1 0 0 / 8%)",
+            color: "oklch(0.85 0.005 264)",
+            fontFamily: "'JetBrains Mono', monospace",
+          }}
+          onFocus={(e) => (e.target.style.borderColor = "oklch(0.88 0.18 196 / 40%)")}
+          onBlur={(e) => (e.target.style.borderColor = "oklch(1 0 0 / 8%)")}
+        />
+      </div>
+
       {/* ── Prompt Cards ── */}
       {filtered.length === 0 ? (
-        <div className="card-surface p-12 text-center">
-          <BookMarked size={32} className="mx-auto mb-3" style={{ color: "oklch(0.42 0.01 264)" }} />
-          <p className="text-sm mb-1" style={{ color: "oklch(0.72 0.01 264)" }}>
-            {prompts.length === 0 ? "Your vault is empty." : "No prompts match your search."}
+        <div
+          className="rounded-xl p-12 text-center"
+          style={{ background: "oklch(0.148 0.012 264)", border: "1px solid oklch(1 0 0 / 5%)" }}
+        >
+          <BookMarked size={28} className="mx-auto mb-3" style={{ color: "oklch(0.38 0.01 264)" }} />
+          <p
+            className="text-xs mb-2"
+            style={{ color: "oklch(0.52 0.01 264)", fontFamily: "'JetBrains Mono', monospace" }}
+          >
+            {prompts.length === 0 ? "→ vault is empty" : "→ no prompts match filter"}
           </p>
           {prompts.length === 0 && (
             <button
               onClick={openCreate}
-              className="text-sm mt-2 hover:text-[oklch(0.88_0.18_196)] transition-colors"
-              style={{ color: "oklch(0.58 0.01 264)", fontFamily: "'Inter', sans-serif" }}
+              className="text-xs transition-colors hover:text-[oklch(0.88_0.18_196)]"
+              style={{ color: "oklch(0.48 0.01 264)", fontFamily: "'JetBrains Mono', monospace" }}
             >
-              Add your first prompt →
+              add first prompt →
             </button>
           )}
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-2">
           {filtered.map((prompt, i) => {
             const isExpanded = expandedId === prompt.id;
             const isCopied = copiedId === prompt.id;
@@ -236,9 +307,18 @@ export default function PromptVault() {
               <div
                 key={prompt.id}
                 className={cn(
-                  "card-surface group hover:border-[oklch(1_0_0_/_15%)] transition-all duration-150 animate-fade-slide-up overflow-hidden",
+                  "rounded-xl group transition-all duration-150 overflow-hidden animate-fade-slide-up",
                   `stagger-${Math.min(i + 1, 6)}`
                 )}
+                style={{
+                  background: isExpanded ? "oklch(0.162 0.012 264)" : "oklch(0.148 0.012 264)",
+                  border: isExpanded
+                    ? "1px solid oklch(0.88 0.18 196 / 20%)"
+                    : "1px solid oklch(1 0 0 / 6%)",
+                  borderLeft: isExpanded
+                    ? "3px solid oklch(0.88 0.18 196 / 60%)"
+                    : "3px solid oklch(1 0 0 / 6%)",
+                }}
               >
                 {/* Header */}
                 <div
@@ -248,29 +328,32 @@ export default function PromptVault() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
                       <h3
-                        className="text-sm font-semibold truncate"
-                        style={{ fontFamily: "'Space Grotesk', sans-serif", color: "oklch(0.92 0.005 264)" }}
+                        className="text-sm font-semibold"
+                        style={{
+                          fontFamily: "'Space Grotesk', sans-serif",
+                          color: isExpanded ? "oklch(0.92 0.005 264)" : "oklch(0.82 0.005 264)",
+                        }}
                       >
                         {prompt.title}
                       </h3>
                     </div>
                     {!isExpanded && (
                       <p
-                        className="text-xs line-clamp-1"
-                        style={{ color: "oklch(0.58 0.01 264)", fontFamily: "'Inter', sans-serif" }}
+                        className="text-xs line-clamp-1 mb-1.5"
+                        style={{ color: "oklch(0.48 0.01 264)", fontFamily: "'Inter', sans-serif" }}
                       >
-                        {prompt.content.slice(0, 120)}...
+                        {prompt.content.slice(0, 100)}…
                       </p>
                     )}
                     {prompt.tags.length > 0 && (
-                      <div className="flex flex-wrap gap-1 mt-2">
+                      <div className="flex flex-wrap gap-1 mt-1.5">
                         {prompt.tags.map((tag) => (
                           <span
                             key={tag}
                             className="px-1.5 py-0.5 rounded text-[10px]"
                             style={{
-                              background: "oklch(1 0 0 / 6%)",
-                              color: "oklch(0.58 0.01 264)",
+                              background: "oklch(1 0 0 / 5%)",
+                              color: "oklch(0.48 0.01 264)",
                               fontFamily: "'JetBrains Mono', monospace",
                             }}
                           >
@@ -281,67 +364,101 @@ export default function PromptVault() {
                     )}
                   </div>
 
-                  {/* Actions */}
+                  {/* Action icons */}
                   <div
-                    className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                    className="flex items-center gap-1 shrink-0"
                     onClick={(e) => e.stopPropagation()}
                   >
-                    <button
-                      onClick={() => handleCopy(prompt)}
-                      className="p-1.5 rounded-md transition-colors"
-                      style={{ color: isCopied ? "oklch(0.72 0.18 145)" : "oklch(0.58 0.01 264)" }}
-                      title="Copy to clipboard"
-                    >
-                      {isCopied ? <Check size={14} /> : <Copy size={14} />}
-                    </button>
-                    <button
-                      onClick={() => openEdit(prompt)}
-                      className="p-1.5 rounded-md transition-colors hover:text-[oklch(0.88_0.18_196)]"
-                      style={{ color: "oklch(0.58 0.01 264)" }}
-                      title="Edit prompt"
-                    >
-                      <Pencil size={14} />
-                    </button>
-                    {deleteConfirmId === prompt.id ? (
-                      <div className="flex items-center gap-1">
-                        <button
-                          onClick={() => handleDelete(prompt.id)}
-                          className="px-2 py-1 rounded text-xs font-medium"
-                          style={{ background: "oklch(0.62 0.22 25 / 20%)", color: "oklch(0.75 0.22 25)" }}
-                        >
-                          confirm
-                        </button>
-                        <button
-                          onClick={() => setDeleteConfirmId(null)}
-                          className="p-1.5 rounded-md"
-                          style={{ color: "oklch(0.58 0.01 264)" }}
-                        >
-                          <X size={14} />
-                        </button>
-                      </div>
-                    ) : (
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                       <button
-                        onClick={() => setDeleteConfirmId(prompt.id)}
-                        className="p-1.5 rounded-md transition-colors hover:text-[oklch(0.75_0.22_25)]"
-                        style={{ color: "oklch(0.58 0.01 264)" }}
-                        title="Delete prompt"
+                        onClick={() => handleCopy(prompt)}
+                        className="p-1.5 rounded-md transition-colors hover:bg-[oklch(1_0_0_/_6%)]"
+                        style={{ color: isCopied ? "oklch(0.72 0.18 145)" : "oklch(0.52 0.01 264)" }}
+                        title="copy to clipboard"
                       >
-                        <Trash2 size={14} />
+                        {isCopied ? <Check size={13} /> : <Copy size={13} />}
                       </button>
-                    )}
+                      <button
+                        onClick={() => openEdit(prompt)}
+                        className="p-1.5 rounded-md transition-colors hover:bg-[oklch(1_0_0_/_6%)] hover:text-[oklch(0.88_0.18_196)]"
+                        style={{ color: "oklch(0.52 0.01 264)" }}
+                        title="edit"
+                      >
+                        <Pencil size={13} />
+                      </button>
+                      {deleteConfirmId === prompt.id ? (
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => handleDelete(prompt.id)}
+                            className="px-2 py-1 rounded text-[11px] font-medium"
+                            style={{
+                              background: "oklch(0.62 0.22 25 / 15%)",
+                              color: "oklch(0.75 0.22 25)",
+                              fontFamily: "'JetBrains Mono', monospace",
+                            }}
+                          >
+                            confirm
+                          </button>
+                          <button
+                            onClick={() => setDeleteConfirmId(null)}
+                            className="p-1.5 rounded-md"
+                            style={{ color: "oklch(0.52 0.01 264)" }}
+                          >
+                            <X size={13} />
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setDeleteConfirmId(prompt.id)}
+                          className="p-1.5 rounded-md transition-colors hover:bg-[oklch(1_0_0_/_6%)] hover:text-[oklch(0.75_0.22_25)]"
+                          style={{ color: "oklch(0.52 0.01 264)" }}
+                          title="delete"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      )}
+                    </div>
+                    <button
+                      className="p-1.5 rounded-md ml-1"
+                      style={{ color: "oklch(0.48 0.01 264)" }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setExpandedId(isExpanded ? null : prompt.id);
+                      }}
+                    >
+                      {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                    </button>
                   </div>
                 </div>
 
                 {/* Expanded content */}
                 {isExpanded && (
                   <div className="px-4 pb-4">
+                    {/* Code block header */}
+                    <div
+                      className="flex items-center justify-between px-3 py-1.5 rounded-t-lg"
+                      style={{ background: "oklch(0.185 0.012 264)", borderBottom: "1px solid oklch(1 0 0 / 8%)" }}
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-2.5 h-2.5 rounded-full" style={{ background: "oklch(0.62 0.22 25 / 60%)" }} />
+                        <div className="w-2.5 h-2.5 rounded-full" style={{ background: "oklch(0.72 0.18 55 / 60%)" }} />
+                        <div className="w-2.5 h-2.5 rounded-full" style={{ background: "oklch(0.72 0.18 145 / 60%)" }} />
+                      </div>
+                      <span
+                        className="text-[10px]"
+                        style={{ color: "oklch(0.42 0.01 264)", fontFamily: "'JetBrains Mono', monospace" }}
+                      >
+                        system_prompt.txt
+                      </span>
+                    </div>
                     <pre
-                      className="text-xs p-4 rounded-lg overflow-x-auto whitespace-pre-wrap leading-relaxed"
+                      className="text-xs p-4 rounded-b-lg overflow-x-auto whitespace-pre-wrap leading-relaxed"
                       style={{
                         background: "oklch(0.118 0.012 264)",
                         color: "oklch(0.78 0.005 264)",
                         fontFamily: "'JetBrains Mono', monospace",
-                        border: "1px solid oklch(1 0 0 / 8%)",
+                        fontSize: "11.5px",
+                        lineHeight: "1.7",
                       }}
                     >
                       {prompt.content}
@@ -349,22 +466,22 @@ export default function PromptVault() {
                     <div className="flex items-center justify-between mt-3">
                       <span
                         className="text-[11px]"
-                        style={{ color: "oklch(0.42 0.01 264)", fontFamily: "'JetBrains Mono', monospace" }}
+                        style={{ color: "oklch(0.38 0.01 264)", fontFamily: "'JetBrains Mono', monospace" }}
                       >
                         updated {new Date(prompt.updatedAt).toLocaleDateString()}
                       </span>
                       <button
                         onClick={() => handleCopy(prompt)}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs transition-all"
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition-all"
                         style={{
-                          background: "oklch(0.88 0.18 196 / 15%)",
+                          background: "oklch(0.88 0.18 196 / 12%)",
                           color: "oklch(0.88 0.18 196)",
-                          border: "1px solid oklch(0.88 0.18 196 / 30%)",
-                          fontFamily: "'Inter', sans-serif",
+                          border: "1px solid oklch(0.88 0.18 196 / 25%)",
+                          fontFamily: "'JetBrains Mono', monospace",
                         }}
                       >
                         {isCopied ? <Check size={12} /> : <Copy size={12} />}
-                        {isCopied ? "Copied!" : "Copy prompt"}
+                        {isCopied ? "copied!" : "copy →"}
                       </button>
                     </div>
                   </div>
@@ -380,14 +497,16 @@ export default function PromptVault() {
         <DialogContent
           className="max-w-2xl"
           style={{
-            background: "oklch(0.185 0.012 264)",
+            background: "oklch(0.178 0.012 264)",
             border: "1px solid oklch(1 0 0 / 12%)",
             color: "oklch(0.92 0.005 264)",
           }}
         >
           <DialogHeader>
-            <DialogTitle style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
-              {editingPrompt ? "Edit Prompt" : "New Prompt"}
+            <DialogTitle
+              style={{ fontFamily: "'Space Grotesk', sans-serif", color: "oklch(0.92 0.005 264)" }}
+            >
+              {editingPrompt ? "// edit prompt" : "// new prompt"}
             </DialogTitle>
           </DialogHeader>
 
@@ -395,22 +514,22 @@ export default function PromptVault() {
             {/* Title */}
             <div>
               <label
-                className="block text-xs font-medium mb-1.5"
-                style={{ color: "oklch(0.58 0.01 264)", fontFamily: "'Inter', sans-serif" }}
+                className="block text-[11px] mb-1.5 uppercase tracking-wider"
+                style={{ color: "oklch(0.48 0.01 264)", fontFamily: "'JetBrains Mono', monospace" }}
               >
-                Title
+                title
               </label>
               <input
                 type="text"
-                placeholder="e.g. React Component Generator"
+                placeholder="e.g. react-component-generator"
                 value={form.title}
                 onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
                 className="w-full px-3 py-2.5 rounded-lg text-sm outline-none transition-all"
                 style={{
-                  background: "oklch(0.155 0.012 264)",
+                  background: "oklch(0.148 0.012 264)",
                   border: "1px solid oklch(1 0 0 / 10%)",
                   color: "oklch(0.92 0.005 264)",
-                  fontFamily: "'Inter', sans-serif",
+                  fontFamily: "'Space Grotesk', sans-serif",
                 }}
                 onFocus={(e) => (e.target.style.borderColor = "oklch(0.88 0.18 196 / 50%)")}
                 onBlur={(e) => (e.target.style.borderColor = "oklch(1 0 0 / 10%)")}
@@ -420,24 +539,24 @@ export default function PromptVault() {
             {/* Content */}
             <div>
               <label
-                className="block text-xs font-medium mb-1.5"
-                style={{ color: "oklch(0.58 0.01 264)", fontFamily: "'Inter', sans-serif" }}
+                className="block text-[11px] mb-1.5 uppercase tracking-wider"
+                style={{ color: "oklch(0.48 0.01 264)", fontFamily: "'JetBrains Mono', monospace" }}
               >
-                Prompt Content
+                prompt content
               </label>
               <textarea
                 placeholder="Enter your system prompt here..."
                 value={form.content}
                 onChange={(e) => setForm((f) => ({ ...f, content: e.target.value }))}
                 rows={10}
-                className="w-full px-3 py-2.5 rounded-lg text-sm outline-none transition-all resize-y"
+                className="w-full px-3 py-2.5 rounded-lg text-xs outline-none transition-all resize-y"
                 style={{
                   background: "oklch(0.118 0.012 264)",
                   border: "1px solid oklch(1 0 0 / 10%)",
-                  color: "oklch(0.85 0.005 264)",
+                  color: "oklch(0.82 0.005 264)",
                   fontFamily: "'JetBrains Mono', monospace",
                   fontSize: "12px",
-                  lineHeight: "1.6",
+                  lineHeight: "1.7",
                 }}
                 onFocus={(e) => (e.target.style.borderColor = "oklch(0.88 0.18 196 / 50%)")}
                 onBlur={(e) => (e.target.style.borderColor = "oklch(1 0 0 / 10%)")}
@@ -447,15 +566,15 @@ export default function PromptVault() {
             {/* Tags */}
             <div>
               <label
-                className="block text-xs font-medium mb-1.5"
-                style={{ color: "oklch(0.58 0.01 264)", fontFamily: "'Inter', sans-serif" }}
+                className="block text-[11px] mb-1.5 uppercase tracking-wider"
+                style={{ color: "oklch(0.48 0.01 264)", fontFamily: "'JetBrains Mono', monospace" }}
               >
-                Tags
+                tags
               </label>
               <div className="flex gap-2 mb-2">
                 <input
                   type="text"
-                  placeholder="add tag..."
+                  placeholder="add tag (Enter or comma)"
                   value={tagInput}
                   onChange={(e) => setTagInput(e.target.value)}
                   onKeyDown={(e) => {
@@ -466,9 +585,9 @@ export default function PromptVault() {
                   }}
                   className="flex-1 px-3 py-2 rounded-lg text-xs outline-none transition-all"
                   style={{
-                    background: "oklch(0.155 0.012 264)",
+                    background: "oklch(0.148 0.012 264)",
                     border: "1px solid oklch(1 0 0 / 10%)",
-                    color: "oklch(0.92 0.005 264)",
+                    color: "oklch(0.85 0.005 264)",
                     fontFamily: "'JetBrains Mono', monospace",
                   }}
                   onFocus={(e) => (e.target.style.borderColor = "oklch(0.88 0.18 196 / 50%)")}
@@ -478,12 +597,13 @@ export default function PromptVault() {
                   onClick={addTag}
                   className="px-3 py-2 rounded-lg text-xs transition-all"
                   style={{
-                    background: "oklch(0.155 0.012 264)",
+                    background: "oklch(0.148 0.012 264)",
                     border: "1px solid oklch(1 0 0 / 10%)",
-                    color: "oklch(0.72 0.01 264)",
+                    color: "oklch(0.65 0.01 264)",
+                    fontFamily: "'JetBrains Mono', monospace",
                   }}
                 >
-                  Add
+                  add
                 </button>
               </div>
               {form.tags.length > 0 && (
@@ -491,11 +611,11 @@ export default function PromptVault() {
                   {form.tags.map((tag) => (
                     <span
                       key={tag}
-                      className="flex items-center gap-1 px-2 py-1 rounded-md text-xs"
+                      className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px]"
                       style={{
-                        background: "oklch(0.88 0.18 196 / 15%)",
+                        background: "oklch(0.88 0.18 196 / 12%)",
                         color: "oklch(0.88 0.18 196)",
-                        border: "1px solid oklch(0.88 0.18 196 / 30%)",
+                        border: "1px solid oklch(0.88 0.18 196 / 25%)",
                         fontFamily: "'JetBrains Mono', monospace",
                       }}
                     >
@@ -517,20 +637,23 @@ export default function PromptVault() {
               style={{
                 background: "transparent",
                 border: "1px solid oklch(1 0 0 / 12%)",
-                color: "oklch(0.72 0.01 264)",
+                color: "oklch(0.65 0.01 264)",
+                fontFamily: "'JetBrains Mono', monospace",
+                fontSize: "12px",
               }}
             >
-              Cancel
+              cancel
             </Button>
             <Button
               onClick={handleSave}
               style={{
                 background: "oklch(0.88 0.18 196)",
                 color: "oklch(0.118 0.012 264)",
-                fontWeight: 500,
+                fontWeight: 600,
+                fontFamily: "'Space Grotesk', sans-serif",
               }}
             >
-              {editingPrompt ? "Save Changes" : "Save Prompt"}
+              {editingPrompt ? "save changes →" : "save prompt →"}
             </Button>
           </DialogFooter>
         </DialogContent>

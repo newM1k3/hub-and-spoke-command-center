@@ -1,7 +1,11 @@
 /* ============================================================
    SpokeTracker.tsx — Assign Active Agent to each GitHub repo
    Theme: Minimal Dark Forge
-   Agents: Bolt.new, Manus, Replit, Cursor, None
+   Style Review Applied:
+   - CLI-native copy ("assign agent →", "→ filter by agent")
+   - Stronger surface elevation with agent-colored left accent
+   - Agent taxonomy always visible even for unassigned repos
+   - Summary bar shows agent distribution at a glance
    ============================================================ */
 import { useEffect, useState } from "react";
 import {
@@ -11,7 +15,6 @@ import {
   ExternalLink,
   Clock,
   Search,
-  Filter,
 } from "lucide-react";
 import {
   Select,
@@ -36,6 +39,15 @@ import {
 } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+
+/* Agent accent colors for left-border treatment */
+const AGENT_ACCENT: Record<AgentName, string> = {
+  "Bolt.new": "oklch(0.72 0.18 55)",
+  "Manus":    "oklch(0.75 0.22 290)",
+  "Replit":   "oklch(0.72 0.18 145)",
+  "Cursor":   "oklch(0.75 0.22 240)",
+  "None":     "transparent",
+};
 
 export default function SpokeTracker() {
   const [repos, setRepos] = useState<GitHubRepo[]>([]);
@@ -68,8 +80,8 @@ export default function SpokeTracker() {
     setAssignments(updated);
     saveAssignments(updated);
     if (agent !== "None") {
-      toast.success(`${repoName} → ${agent}`, {
-        description: "Agent assignment saved.",
+      toast.success(`→ ${repoName}`, {
+        description: `assigned to ${agent}`,
         duration: 2000,
       });
     }
@@ -87,9 +99,11 @@ export default function SpokeTracker() {
   });
 
   const agentCounts = AGENTS.reduce<Record<string, number>>((acc, agent) => {
-    acc[agent] = Object.values(assignments).filter((a) => a === agent).length;
+    acc[agent] = repos.filter((r) => (assignments[r.name] ?? "None") === agent).length;
     return acc;
   }, {});
+
+  const assignedCount = repos.filter((r) => (assignments[r.name] ?? "None") !== "None").length;
 
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-6">
@@ -97,172 +111,249 @@ export default function SpokeTracker() {
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1
-            className="text-2xl font-semibold"
+            className="text-2xl font-bold"
             style={{ fontFamily: "'Space Grotesk', sans-serif", color: "oklch(0.92 0.005 264)" }}
           >
             // spoke tracker
           </h1>
-          <p className="text-sm mt-1" style={{ color: "oklch(0.58 0.01 264)", fontFamily: "'JetBrains Mono', monospace" }}>
-            assign active agents to repositories
+          <p
+            className="text-xs mt-1"
+            style={{ color: "oklch(0.88 0.18 196 / 70%)", fontFamily: "'JetBrains Mono', monospace" }}
+          >
+            → assign agent to each repo · {assignedCount}/{repos.length} mapped
           </p>
         </div>
         <button
           onClick={loadRepos}
           disabled={loading}
-          className="flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-all"
+          className="flex items-center gap-2 px-3 py-2 rounded-md text-xs transition-all"
           style={{
-            background: "oklch(0.185 0.012 264)",
-            border: "1px solid oklch(1 0 0 / 10%)",
-            color: "oklch(0.72 0.01 264)",
+            background: "oklch(0.165 0.012 264)",
+            border: "1px solid oklch(1 0 0 / 8%)",
+            color: "oklch(0.65 0.01 264)",
+            fontFamily: "'JetBrains Mono', monospace",
           }}
         >
-          <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
-          Refresh
+          <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
+          sync
         </button>
       </div>
 
-      {/* ── Agent Summary Pills ── */}
-      <div className="flex flex-wrap gap-2">
-        {(["All", ...AGENTS] as (AgentName | "All")[]).map((agent) => {
-          const isActive = filterAgent === agent;
-          const count = agent === "All" ? repos.length : (agentCounts[agent] ?? 0);
-          return (
-            <button
-              key={agent}
-              onClick={() => setFilterAgent(agent)}
-              className={cn(
-                "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs transition-all",
-                isActive
-                  ? agent === "All"
-                    ? "bg-[oklch(0.88_0.18_196)] text-[oklch(0.118_0.012_264)] font-medium"
-                    : cn(AGENT_BADGE_CLASS[agent as AgentName], "font-medium")
-                  : "border border-[oklch(1_0_0_/_10%)] text-[oklch(0.58_0.01_264)] hover:border-[oklch(1_0_0_/_20%)]"
-              )}
-              style={{ fontFamily: "'Inter', sans-serif" }}
-            >
-              {agent}
-              <span
+      {/* ── Agent Filter Bar ── */}
+      <div
+        className="rounded-xl p-4"
+        style={{
+          background: "oklch(0.148 0.012 264)",
+          border: "1px solid oklch(1 0 0 / 6%)",
+        }}
+      >
+        <div
+          className="text-[10px] uppercase tracking-widest mb-3"
+          style={{ color: "oklch(0.42 0.01 264)", fontFamily: "'JetBrains Mono', monospace" }}
+        >
+          → filter by agent
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {(["All", ...AGENTS] as (AgentName | "All")[]).map((agent) => {
+            const isActive = filterAgent === agent;
+            const count = agent === "All" ? repos.length : (agentCounts[agent] ?? 0);
+            const badgeClass = agent !== "All" ? AGENT_BADGE_CLASS[agent as AgentName] : "";
+            return (
+              <button
+                key={agent}
+                onClick={() => setFilterAgent(agent)}
                 className={cn(
-                  "px-1.5 py-0.5 rounded-full text-[10px] font-medium",
-                  isActive ? "bg-[oklch(0_0_0_/_20%)]" : "bg-[oklch(1_0_0_/_8%)]"
+                  "flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs transition-all",
+                  isActive
+                    ? agent === "All"
+                      ? "font-semibold"
+                      : cn(badgeClass, "font-semibold")
+                    : "hover:opacity-80"
                 )}
+                style={
+                  isActive && agent === "All"
+                    ? {
+                        background: "oklch(0.88 0.18 196 / 15%)",
+                        color: "oklch(0.88 0.18 196)",
+                        border: "1px solid oklch(0.88 0.18 196 / 35%)",
+                        fontFamily: "'JetBrains Mono', monospace",
+                      }
+                    : !isActive
+                    ? {
+                        background: "oklch(1 0 0 / 4%)",
+                        color: "oklch(0.52 0.01 264)",
+                        border: "1px solid oklch(1 0 0 / 8%)",
+                        fontFamily: "'JetBrains Mono', monospace",
+                      }
+                    : { fontFamily: "'JetBrains Mono', monospace" }
+                }
               >
-                {count}
-              </span>
-            </button>
-          );
-        })}
+                {agent === "All" ? "all" : agent.toLowerCase()}
+                <span
+                  className="px-1.5 py-0.5 rounded text-[10px] font-bold"
+                  style={{ background: "oklch(0 0 0 / 20%)" }}
+                >
+                  {count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* ── Search ── */}
       <div className="relative">
-        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: "oklch(0.42 0.01 264)" }} />
+        <Search
+          size={13}
+          className="absolute left-3 top-1/2 -translate-y-1/2"
+          style={{ color: "oklch(0.38 0.01 264)" }}
+        />
         <input
           type="text"
-          placeholder="search repositories..."
+          placeholder="search repos..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="w-full pl-9 pr-4 py-2.5 rounded-lg text-sm outline-none transition-all"
+          className="w-full pl-9 pr-4 py-2.5 rounded-lg text-xs outline-none transition-all"
           style={{
-            background: "oklch(0.155 0.012 264)",
-            border: "1px solid oklch(1 0 0 / 10%)",
-            color: "oklch(0.92 0.005 264)",
-            fontFamily: "'Inter', sans-serif",
+            background: "oklch(0.148 0.012 264)",
+            border: "1px solid oklch(1 0 0 / 8%)",
+            color: "oklch(0.85 0.005 264)",
+            fontFamily: "'JetBrains Mono', monospace",
           }}
-          onFocus={(e) => (e.target.style.borderColor = "oklch(0.88 0.18 196 / 50%)")}
-          onBlur={(e) => (e.target.style.borderColor = "oklch(1 0 0 / 10%)")}
+          onFocus={(e) => (e.target.style.borderColor = "oklch(0.88 0.18 196 / 40%)")}
+          onBlur={(e) => (e.target.style.borderColor = "oklch(1 0 0 / 8%)")}
         />
       </div>
 
       {/* ── Error ── */}
       {error && (
         <div
-          className="flex items-start gap-3 p-4 rounded-lg"
-          style={{ background: "oklch(0.62 0.22 25 / 10%)", border: "1px solid oklch(0.62 0.22 25 / 30%)" }}
+          className="flex items-start gap-3 p-4 rounded-xl"
+          style={{
+            background: "oklch(0.62 0.22 25 / 8%)",
+            border: "1px solid oklch(0.62 0.22 25 / 25%)",
+          }}
         >
-          <AlertCircle size={16} className="shrink-0 mt-0.5" style={{ color: "oklch(0.75 0.22 25)" }} />
-          <p className="text-sm" style={{ color: "oklch(0.85 0.1 25)" }}>{error}</p>
+          <AlertCircle size={14} className="shrink-0 mt-0.5" style={{ color: "oklch(0.75 0.22 25)" }} />
+          <p
+            className="text-xs"
+            style={{ color: "oklch(0.75 0.22 25)", fontFamily: "'JetBrains Mono', monospace" }}
+          >
+            {error}
+          </p>
         </div>
       )}
 
       {/* ── Repo List ── */}
       {loading ? (
-        <div className="space-y-3">
+        <div className="space-y-2">
           {[1, 2, 3, 4, 5, 6].map((i) => (
-            <div key={i} className="card-surface p-4 animate-pulse">
+            <div
+              key={i}
+              className="rounded-xl p-4 animate-pulse"
+              style={{ background: "oklch(0.148 0.012 264)", border: "1px solid oklch(1 0 0 / 5%)" }}
+            >
               <div className="flex items-center justify-between">
                 <div className="space-y-2 flex-1">
                   <div className="h-4 rounded w-1/3" style={{ background: "oklch(1 0 0 / 8%)" }} />
                   <div className="h-3 rounded w-2/3" style={{ background: "oklch(1 0 0 / 5%)" }} />
                 </div>
-                <div className="h-9 w-36 rounded-md" style={{ background: "oklch(1 0 0 / 8%)" }} />
+                <div className="h-8 w-32 rounded-lg" style={{ background: "oklch(1 0 0 / 8%)" }} />
               </div>
             </div>
           ))}
         </div>
       ) : filtered.length === 0 ? (
-        <div className="card-surface p-10 text-center">
-          <Filter size={28} className="mx-auto mb-3" style={{ color: "oklch(0.42 0.01 264)" }} />
-          <p className="text-sm" style={{ color: "oklch(0.58 0.01 264)" }}>
-            No repositories match your filter.
+        <div
+          className="rounded-xl p-10 text-center"
+          style={{ background: "oklch(0.148 0.012 264)", border: "1px solid oklch(1 0 0 / 5%)" }}
+        >
+          <p
+            className="text-xs"
+            style={{ color: "oklch(0.48 0.01 264)", fontFamily: "'JetBrains Mono', monospace" }}
+          >
+            → no repos match filter
           </p>
         </div>
       ) : (
-        <div className="space-y-2">
+        <div className="space-y-1.5">
           {filtered.map((repo, i) => {
             const currentAgent = assignments[repo.name] ?? "None";
             const badgeClass = AGENT_BADGE_CLASS[currentAgent];
+            const accentColor = AGENT_ACCENT[currentAgent];
+            const hasAgent = currentAgent !== "None";
             return (
               <div
                 key={repo.id}
                 className={cn(
-                  "card-surface p-4 group hover:border-[oklch(1_0_0_/_15%)] transition-all duration-150 animate-fade-slide-up",
+                  "rounded-xl p-3.5 group transition-all duration-150 animate-fade-slide-up",
                   `stagger-${Math.min(i + 1, 6)}`
                 )}
+                style={{
+                  background: hasAgent ? "oklch(0.158 0.012 264)" : "oklch(0.148 0.012 264)",
+                  border: "1px solid oklch(1 0 0 / 6%)",
+                  borderLeft: hasAgent ? `3px solid ${accentColor}` : "3px solid oklch(1 0 0 / 6%)",
+                }}
               >
                 <div className="flex items-center gap-4">
                   {/* Repo info */}
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <GitBranch size={13} style={{ color: "oklch(0.42 0.01 264)" }} className="shrink-0" />
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <GitBranch
+                        size={12}
+                        style={{ color: hasAgent ? accentColor : "oklch(0.38 0.01 264)" }}
+                        className="shrink-0"
+                      />
                       <a
                         href={repo.html_url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-sm font-medium truncate hover:text-[oklch(0.88_0.18_196)] transition-colors"
-                        style={{ color: "oklch(0.88 0.005 264)", fontFamily: "'Space Grotesk', sans-serif" }}
+                        className="text-sm font-semibold truncate transition-colors hover:text-[oklch(0.88_0.18_196)]"
+                        style={{
+                          color: "oklch(0.85 0.005 264)",
+                          fontFamily: "'Space Grotesk', sans-serif",
+                        }}
                       >
                         {repo.name}
                       </a>
                       <ExternalLink
-                        size={11}
+                        size={10}
                         className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
-                        style={{ color: "oklch(0.42 0.01 264)" }}
+                        style={{ color: "oklch(0.38 0.01 264)" }}
                       />
                     </div>
                     {repo.description && (
                       <p
-                        className="text-xs truncate mb-2"
-                        style={{ color: "oklch(0.58 0.01 264)", fontFamily: "'Inter', sans-serif" }}
+                        className="text-xs truncate mb-1.5 pl-5"
+                        style={{ color: "oklch(0.48 0.01 264)", fontFamily: "'Inter', sans-serif" }}
                       >
                         {repo.description}
                       </p>
                     )}
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3 pl-5">
                       {repo.language && (
                         <div className="flex items-center gap-1.5">
                           <span
-                            className="w-2 h-2 rounded-full"
+                            className="w-1.5 h-1.5 rounded-full"
                             style={{ background: getLanguageColor(repo.language) }}
                           />
-                          <span className="text-[11px]" style={{ color: "oklch(0.58 0.01 264)", fontFamily: "'JetBrains Mono', monospace" }}>
+                          <span
+                            className="text-[11px]"
+                            style={{ color: "oklch(0.48 0.01 264)", fontFamily: "'JetBrains Mono', monospace" }}
+                          >
                             {repo.language}
                           </span>
                         </div>
                       )}
-                      <div className="flex items-center gap-1" style={{ color: "oklch(0.42 0.01 264)" }}>
-                        <Clock size={11} />
-                        <span className="text-[11px]" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+                      <div
+                        className="flex items-center gap-1"
+                        style={{ color: "oklch(0.38 0.01 264)" }}
+                      >
+                        <Clock size={10} />
+                        <span
+                          className="text-[11px]"
+                          style={{ fontFamily: "'JetBrains Mono', monospace" }}
+                        >
                           {timeAgo(repo.pushed_at)}
                         </span>
                       </div>
@@ -276,8 +367,8 @@ export default function SpokeTracker() {
                       onValueChange={(val) => handleAssign(repo.name, val as AgentName)}
                     >
                       <SelectTrigger
-                        className={cn("w-36 h-8 text-xs border-0", badgeClass)}
-                        style={{ fontFamily: "'Inter', sans-serif" }}
+                        className={cn("w-32 h-7 text-[11px] border-0 rounded-lg", badgeClass)}
+                        style={{ fontFamily: "'JetBrains Mono', monospace" }}
                       >
                         <SelectValue />
                       </SelectTrigger>
@@ -292,7 +383,10 @@ export default function SpokeTracker() {
                             key={agent}
                             value={agent}
                             className="text-xs"
-                            style={{ fontFamily: "'Inter', sans-serif", color: "oklch(0.92 0.005 264)" }}
+                            style={{
+                              fontFamily: "'JetBrains Mono', monospace",
+                              color: "oklch(0.85 0.005 264)",
+                            }}
                           >
                             {agent}
                           </SelectItem>
@@ -308,10 +402,10 @@ export default function SpokeTracker() {
       )}
 
       <p
-        className="text-xs text-center pb-4"
-        style={{ color: "oklch(0.42 0.01 264)", fontFamily: "'JetBrains Mono', monospace" }}
+        className="text-[11px] text-center pb-4"
+        style={{ color: "oklch(0.38 0.01 264)", fontFamily: "'JetBrains Mono', monospace" }}
       >
-        {filtered.length} of {repos.length} repos shown · assignments saved locally
+        → {filtered.length}/{repos.length} repos · assignments persisted locally
       </p>
     </div>
   );
