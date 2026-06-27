@@ -1,11 +1,9 @@
 /* ============================================================
-   Dashboard.tsx — Main overview page
-   Theme: Minimal Dark Forge
-   Style Review Applied:
-   - Stronger surface elevation (layered bg steps, not just borders)
-   - CLI-native copy ("// repos synced", "→ push", etc.)
-   - Node motifs on stat cards and commit items
-   - Agent badges visible even on unassigned repos (show taxonomy)
+   Dashboard.tsx — Phase 2
+   - Stat cards: public repos, active agents, deployed count, top language
+   - Repo list with Agent + Status badges (loaded from localStorage)
+   - Dual filter bar: filter by Agent AND Status
+   - Recent commits feed
    ============================================================ */
 import { useEffect, useState } from "react";
 import {
@@ -14,12 +12,13 @@ import {
   GitCommit,
   RefreshCw,
   AlertCircle,
-  Users,
   BookOpen,
   Clock,
   ExternalLink,
   Zap,
   ArrowRight,
+  Rocket,
+  X,
 } from "lucide-react";
 import { Link } from "wouter";
 import {
@@ -34,7 +33,16 @@ import {
   type GitHubUser,
   type GitHubCommit,
 } from "@/lib/github";
-import { loadAssignments, AGENT_BADGE_CLASS, type AgentName } from "@/lib/store";
+import {
+  loadAssignments,
+  loadStatuses,
+  AGENTS,
+  STATUSES,
+  AGENT_BADGE_CLASS,
+  STATUS_BADGE_CLASS,
+  type AgentName,
+  type StatusName,
+} from "@/lib/store";
 import { cn } from "@/lib/utils";
 
 interface RepoWithCommits {
@@ -42,26 +50,35 @@ interface RepoWithCommits {
   commits: GitHubCommit[];
 }
 
+type FilterAgent  = AgentName  | "All";
+type FilterStatus = StatusName | "All";
+
 /* Tiny node connector for commit items */
 function CommitNode() {
   return (
     <div className="flex flex-col items-center shrink-0" style={{ width: "16px" }}>
       <div
         className="w-2.5 h-2.5 rounded-full"
-        style={{ background: "oklch(0.88 0.18 196 / 80%)", boxShadow: "0 0 6px oklch(0.88 0.18 196 / 40%)" }}
+        style={{
+          background: "oklch(0.88 0.18 196 / 80%)",
+          boxShadow: "0 0 6px oklch(0.88 0.18 196 / 40%)",
+        }}
       />
     </div>
   );
 }
 
 export default function Dashboard() {
-  const [user, setUser] = useState<GitHubUser | null>(null);
-  const [repos, setRepos] = useState<GitHubRepo[]>([]);
+  const [user, setUser]                   = useState<GitHubUser | null>(null);
+  const [repos, setRepos]                 = useState<GitHubRepo[]>([]);
   const [recentActivity, setRecentActivity] = useState<RepoWithCommits[]>([]);
-  const [assignments, setAssignments] = useState<Record<string, AgentName>>({});
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [lastSynced, setLastSynced] = useState<Date | null>(null);
+  const [assignments, setAssignments]     = useState<Record<string, AgentName>>({});
+  const [statuses, setStatuses]           = useState<Record<string, StatusName>>({});
+  const [loading, setLoading]             = useState(true);
+  const [error, setError]                 = useState<string | null>(null);
+  const [lastSynced, setLastSynced]       = useState<Date | null>(null);
+  const [filterAgent, setFilterAgent]     = useState<FilterAgent>("All");
+  const [filterStatus, setFilterStatus]   = useState<FilterStatus>("All");
 
   async function loadData() {
     setLoading(true);
@@ -73,7 +90,9 @@ export default function Dashboard() {
       ]);
       setUser(userData);
       setRepos(repoData);
+      /* Always reload from localStorage so Dashboard reflects Spoke Tracker changes */
       setAssignments(loadAssignments());
+      setStatuses(loadStatuses());
 
       const topRepos = repoData.slice(0, 5);
       const withCommits = await Promise.all(
@@ -91,16 +110,36 @@ export default function Dashboard() {
     }
   }
 
+  useEffect(() => { loadData(); }, []);
+
+  /* Reload localStorage state whenever the tab regains focus (user was on Spoke Tracker) */
   useEffect(() => {
-    loadData();
+    function onFocus() {
+      setAssignments(loadAssignments());
+      setStatuses(loadStatuses());
+    }
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
   }, []);
 
   const activeAgentCount = Object.values(assignments).filter((a) => a !== "None").length;
+  const deployedCount    = Object.values(statuses).filter((s) => s === "Deployed").length;
   const languages = repos.reduce<Record<string, number>>((acc, r) => {
     if (r.language) acc[r.language] = (acc[r.language] || 0) + 1;
     return acc;
   }, {});
   const topLanguage = Object.entries(languages).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "—";
+
+  /* Filter repos for the list */
+  const filteredRepos = repos.filter((repo) => {
+    const agent  = assignments[repo.name] ?? "None";
+    const status = statuses[repo.name]    ?? "None";
+    const matchAgent  = filterAgent  === "All" || agent  === filterAgent;
+    const matchStatus = filterStatus === "All" || status === filterStatus;
+    return matchAgent && matchStatus;
+  });
+
+  const hasActiveFilters = filterAgent !== "All" || filterStatus !== "All";
 
   const statCards = [
     {
@@ -120,9 +159,9 @@ export default function Dashboard() {
       delay: "stagger-2",
     },
     {
-      label: "followers",
-      value: loading ? "—" : user?.followers ?? "—",
-      icon: Users,
+      label: "deployed",
+      value: loading ? "—" : deployedCount,
+      icon: Rocket,
       accent: "oklch(0.72 0.18 145)",
       accentBg: "oklch(0.72 0.18 145 / 10%)",
       delay: "stagger-3",
@@ -139,6 +178,7 @@ export default function Dashboard() {
 
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-8">
+
       {/* ── Page Header ── */}
       <div className="flex items-start justify-between gap-4">
         <div>
@@ -184,16 +224,10 @@ export default function Dashboard() {
         >
           <AlertCircle size={15} className="shrink-0 mt-0.5" style={{ color: "oklch(0.75 0.22 25)" }} />
           <div>
-            <p
-              className="text-xs font-medium"
-              style={{ color: "oklch(0.85 0.1 25)", fontFamily: "'Space Grotesk', sans-serif" }}
-            >
+            <p className="text-xs font-medium" style={{ color: "oklch(0.85 0.1 25)", fontFamily: "'Space Grotesk', sans-serif" }}>
               api error
             </p>
-            <p
-              className="text-xs mt-0.5"
-              style={{ color: "oklch(0.65 0.1 25)", fontFamily: "'JetBrains Mono', monospace" }}
-            >
+            <p className="text-xs mt-0.5" style={{ color: "oklch(0.65 0.1 25)", fontFamily: "'JetBrains Mono', monospace" }}>
               {error} — check VITE_GITHUB_TOKEN
             </p>
           </div>
@@ -218,15 +252,14 @@ export default function Dashboard() {
               >
                 <stat.icon size={15} style={{ color: stat.accent }} />
               </div>
-              {/* Node motif */}
               <svg width="20" height="20" viewBox="0 0 20 20" fill="none" className="opacity-30">
                 <circle cx="10" cy="10" r="3" fill={stat.accent} />
-                <line x1="10" y1="10" x2="2" y2="4"  stroke={stat.accent} strokeWidth="1" strokeDasharray="1.5 1.5" />
-                <line x1="10" y1="10" x2="18" y2="4" stroke={stat.accent} strokeWidth="1" strokeDasharray="1.5 1.5" />
-                <line x1="10" y1="10" x2="10" y2="1" stroke={stat.accent} strokeWidth="1" strokeDasharray="1.5 1.5" />
-                <circle cx="2"  cy="4"  r="1.5" fill={stat.accent} />
-                <circle cx="18" cy="4"  r="1.5" fill={stat.accent} />
-                <circle cx="10" cy="1"  r="1.5" fill={stat.accent} />
+                <line x1="10" y1="10" x2="2"  y2="4"  stroke={stat.accent} strokeWidth="1" strokeDasharray="1.5 1.5" />
+                <line x1="10" y1="10" x2="18" y2="4"  stroke={stat.accent} strokeWidth="1" strokeDasharray="1.5 1.5" />
+                <line x1="10" y1="10" x2="10" y2="1"  stroke={stat.accent} strokeWidth="1" strokeDasharray="1.5 1.5" />
+                <circle cx="2"  cy="4" r="1.5" fill={stat.accent} />
+                <circle cx="18" cy="4" r="1.5" fill={stat.accent} />
+                <circle cx="10" cy="1" r="1.5" fill={stat.accent} />
               </svg>
             </div>
             <div
@@ -247,7 +280,8 @@ export default function Dashboard() {
 
       {/* ── Main Grid ── */}
       <div className="grid lg:grid-cols-5 gap-6">
-        {/* Recent Repos */}
+
+        {/* ── Repo List Column ── */}
         <div className="lg:col-span-3 space-y-3">
           <div className="flex items-center justify-between">
             <h2
@@ -261,11 +295,117 @@ export default function Dashboard() {
                 className="flex items-center gap-1 text-[11px] transition-colors hover:text-[oklch(0.88_0.18_196)]"
                 style={{ color: "oklch(0.48 0.01 264)", fontFamily: "'JetBrains Mono', monospace", cursor: "pointer" }}
               >
-                assign agents <ArrowRight size={11} />
+                manage spokes <ArrowRight size={11} />
               </span>
             </Link>
           </div>
 
+          {/* Compact filter pills */}
+          <div
+            className="rounded-xl px-3 py-2.5 space-y-2"
+            style={{
+              background: "oklch(0.148 0.012 264)",
+              border: "1px solid oklch(1 0 0 / 6%)",
+            }}
+          >
+            {/* Agent pills */}
+            <div className="flex flex-wrap gap-1.5 items-center">
+              <span
+                className="text-[10px] uppercase tracking-wider mr-1"
+                style={{ color: "oklch(0.38 0.01 264)", fontFamily: "'JetBrains Mono', monospace" }}
+              >
+                agent:
+              </span>
+              {(["All", ...AGENTS] as FilterAgent[]).map((agent) => {
+                const isActive = filterAgent === agent;
+                return (
+                  <button
+                    key={agent}
+                    onClick={() => setFilterAgent(agent)}
+                    className={cn(
+                      "px-2 py-0.5 rounded-full text-[10px] transition-all",
+                      isActive && agent !== "All" ? AGENT_BADGE_CLASS[agent as AgentName] : ""
+                    )}
+                    style={
+                      isActive && agent === "All"
+                        ? {
+                            background: "oklch(0.88 0.18 196 / 15%)",
+                            color: "oklch(0.88 0.18 196)",
+                            border: "1px solid oklch(0.88 0.18 196 / 35%)",
+                            fontFamily: "'JetBrains Mono', monospace",
+                          }
+                        : !isActive
+                        ? {
+                            background: "oklch(1 0 0 / 4%)",
+                            color: "oklch(0.45 0.01 264)",
+                            border: "1px solid oklch(1 0 0 / 8%)",
+                            fontFamily: "'JetBrains Mono', monospace",
+                          }
+                        : { fontFamily: "'JetBrains Mono', monospace" }
+                    }
+                  >
+                    {agent === "All" ? "all" : agent.toLowerCase()}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Status pills */}
+            <div className="flex flex-wrap gap-1.5 items-center">
+              <span
+                className="text-[10px] uppercase tracking-wider mr-1"
+                style={{ color: "oklch(0.38 0.01 264)", fontFamily: "'JetBrains Mono', monospace" }}
+              >
+                status:
+              </span>
+              {(["All", ...STATUSES] as FilterStatus[]).map((status) => {
+                const isActive = filterStatus === status;
+                return (
+                  <button
+                    key={status}
+                    onClick={() => setFilterStatus(status)}
+                    className={cn(
+                      "px-2 py-0.5 rounded-full text-[10px] transition-all",
+                      isActive && status !== "All" ? STATUS_BADGE_CLASS[status as StatusName] : ""
+                    )}
+                    style={
+                      isActive && status === "All"
+                        ? {
+                            background: "oklch(0.88 0.18 196 / 15%)",
+                            color: "oklch(0.88 0.18 196)",
+                            border: "1px solid oklch(0.88 0.18 196 / 35%)",
+                            fontFamily: "'JetBrains Mono', monospace",
+                          }
+                        : !isActive
+                        ? {
+                            background: "oklch(1 0 0 / 4%)",
+                            color: "oklch(0.45 0.01 264)",
+                            border: "1px solid oklch(1 0 0 / 8%)",
+                            fontFamily: "'JetBrains Mono', monospace",
+                          }
+                        : { fontFamily: "'JetBrains Mono', monospace" }
+                    }
+                  >
+                    {status === "All" ? "all" : status.toLowerCase()}
+                  </button>
+                );
+              })}
+              {hasActiveFilters && (
+                <button
+                  onClick={() => { setFilterAgent("All"); setFilterStatus("All"); }}
+                  className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] transition-colors hover:text-[oklch(0.88_0.18_196)]"
+                  style={{
+                    color: "oklch(0.42 0.01 264)",
+                    fontFamily: "'JetBrains Mono', monospace",
+                  }}
+                >
+                  <X size={9} /> clear
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Repo rows */}
           {loading ? (
             <div className="space-y-2">
               {[1, 2, 3, 4, 5].map((i) => (
@@ -279,12 +419,31 @@ export default function Dashboard() {
                 </div>
               ))}
             </div>
+          ) : filteredRepos.length === 0 ? (
+            <div
+              className="rounded-xl p-8 text-center"
+              style={{ background: "oklch(0.148 0.012 264)", border: "1px solid oklch(1 0 0 / 5%)" }}
+            >
+              <p className="text-xs" style={{ color: "oklch(0.48 0.01 264)", fontFamily: "'JetBrains Mono', monospace" }}>
+                → no repos match filters
+              </p>
+              <button
+                onClick={() => { setFilterAgent("All"); setFilterStatus("All"); }}
+                className="mt-1.5 text-xs transition-colors hover:text-[oklch(0.88_0.18_196)]"
+                style={{ color: "oklch(0.42 0.01 264)", fontFamily: "'JetBrains Mono', monospace" }}
+              >
+                clear filters →
+              </button>
+            </div>
           ) : (
             <div className="space-y-1.5">
-              {repos.slice(0, 8).map((repo, i) => {
-                const agent = assignments[repo.name];
-                const badgeClass = agent ? AGENT_BADGE_CLASS[agent] : AGENT_BADGE_CLASS["None"];
-                const hasAgent = agent && agent !== "None";
+              {filteredRepos.slice(0, 8).map((repo, i) => {
+                const agent  = assignments[repo.name] ?? "None";
+                const status = statuses[repo.name]    ?? "None";
+                const agentBadge  = AGENT_BADGE_CLASS[agent];
+                const statusBadge = STATUS_BADGE_CLASS[status];
+                const hasAgent  = agent  !== "None";
+                const hasStatus = status !== "None";
                 return (
                   <div
                     key={repo.id}
@@ -293,18 +452,14 @@ export default function Dashboard() {
                       `stagger-${Math.min(i + 1, 6)}`
                     )}
                     style={{
-                      background: hasAgent ? "oklch(0.162 0.012 264)" : "oklch(0.148 0.012 264)",
-                      border: hasAgent
-                        ? "1px solid oklch(1 0 0 / 10%)"
-                        : "1px solid oklch(1 0 0 / 5%)",
+                      background: (hasAgent || hasStatus) ? "oklch(0.162 0.012 264)" : "oklch(0.148 0.012 264)",
+                      border: (hasAgent || hasStatus) ? "1px solid oklch(1 0 0 / 10%)" : "1px solid oklch(1 0 0 / 5%)",
                     }}
                     onMouseEnter={(e) => {
                       (e.currentTarget as HTMLDivElement).style.background = "oklch(0.168 0.012 264)";
-                      (e.currentTarget as HTMLDivElement).style.borderColor = "oklch(1 0 0 / 12%)";
                     }}
                     onMouseLeave={(e) => {
-                      (e.currentTarget as HTMLDivElement).style.background = hasAgent ? "oklch(0.162 0.012 264)" : "oklch(0.148 0.012 264)";
-                      (e.currentTarget as HTMLDivElement).style.borderColor = hasAgent ? "oklch(1 0 0 / 10%)" : "oklch(1 0 0 / 5%)";
+                      (e.currentTarget as HTMLDivElement).style.background = (hasAgent || hasStatus) ? "oklch(0.162 0.012 264)" : "oklch(0.148 0.012 264)";
                     }}
                   >
                     <div className="flex items-start justify-between gap-3">
@@ -315,10 +470,7 @@ export default function Dashboard() {
                             target="_blank"
                             rel="noopener noreferrer"
                             className="text-sm font-semibold truncate transition-colors hover:text-[oklch(0.88_0.18_196)]"
-                            style={{
-                              color: "oklch(0.85 0.005 264)",
-                              fontFamily: "'Space Grotesk', sans-serif",
-                            }}
+                            style={{ color: "oklch(0.85 0.005 264)", fontFamily: "'Space Grotesk', sans-serif" }}
                           >
                             {repo.name}
                           </a>
@@ -339,52 +491,44 @@ export default function Dashboard() {
                         <div className="flex items-center gap-3">
                           {repo.language && (
                             <div className="flex items-center gap-1.5">
-                              <span
-                                className="w-1.5 h-1.5 rounded-full shrink-0"
-                                style={{ background: getLanguageColor(repo.language) }}
-                              />
-                              <span
-                                className="text-[11px]"
-                                style={{ color: "oklch(0.52 0.01 264)", fontFamily: "'JetBrains Mono', monospace" }}
-                              >
+                              <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: getLanguageColor(repo.language) }} />
+                              <span className="text-[11px]" style={{ color: "oklch(0.52 0.01 264)", fontFamily: "'JetBrains Mono', monospace" }}>
                                 {repo.language}
                               </span>
                             </div>
                           )}
                           {repo.stargazers_count > 0 && (
-                            <div
-                              className="flex items-center gap-1"
-                              style={{ color: "oklch(0.48 0.01 264)" }}
-                            >
+                            <div className="flex items-center gap-1" style={{ color: "oklch(0.48 0.01 264)" }}>
                               <Star size={10} />
-                              <span
-                                className="text-[11px]"
-                                style={{ fontFamily: "'JetBrains Mono', monospace" }}
-                              >
+                              <span className="text-[11px]" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
                                 {repo.stargazers_count}
                               </span>
                             </div>
                           )}
-                          <div
-                            className="flex items-center gap-1"
-                            style={{ color: "oklch(0.38 0.01 264)" }}
-                          >
+                          <div className="flex items-center gap-1" style={{ color: "oklch(0.38 0.01 264)" }}>
                             <Clock size={10} />
-                            <span
-                              className="text-[11px]"
-                              style={{ fontFamily: "'JetBrains Mono', monospace" }}
-                            >
+                            <span className="text-[11px]" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
                               {timeAgo(repo.pushed_at)}
                             </span>
                           </div>
                         </div>
                       </div>
-                      <span
-                        className={cn("text-[11px] px-2 py-0.5 rounded-full shrink-0", badgeClass)}
-                        style={{ fontFamily: "'JetBrains Mono', monospace" }}
-                      >
-                        {agent ?? "none"}
-                      </span>
+
+                      {/* Agent + Status badges */}
+                      <div className="flex flex-col items-end gap-1 shrink-0">
+                        <span
+                          className={cn("text-[11px] px-2 py-0.5 rounded-full", agentBadge)}
+                          style={{ fontFamily: "'JetBrains Mono', monospace" }}
+                        >
+                          {agent === "None" ? "no agent" : agent.toLowerCase()}
+                        </span>
+                        <span
+                          className={cn("text-[11px] px-2 py-0.5 rounded-full", statusBadge)}
+                          style={{ fontFamily: "'JetBrains Mono', monospace" }}
+                        >
+                          {status === "None" ? "no status" : status.toLowerCase()}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 );
@@ -393,7 +537,7 @@ export default function Dashboard() {
           )}
         </div>
 
-        {/* Recent Commit Activity */}
+        {/* ── Recent Commits Column ── */}
         <div className="lg:col-span-2 space-y-3">
           <h2
             className="text-[11px] font-medium uppercase tracking-widest"
@@ -411,7 +555,7 @@ export default function Dashboard() {
                   style={{ background: "oklch(0.155 0.012 264)", border: "1px solid oklch(1 0 0 / 6%)" }}
                 >
                   <div className="h-3 rounded w-1/3 mb-2" style={{ background: "oklch(1 0 0 / 8%)" }} />
-                  <div className="h-3 rounded w-full" style={{ background: "oklch(1 0 0 / 5%)" }} />
+                  <div className="h-3 rounded w-full"    style={{ background: "oklch(1 0 0 / 5%)" }} />
                 </div>
               ))}
             </div>
@@ -421,10 +565,7 @@ export default function Dashboard() {
               style={{ background: "oklch(0.155 0.012 264)", border: "1px solid oklch(1 0 0 / 6%)" }}
             >
               <GitCommit size={22} className="mx-auto mb-2" style={{ color: "oklch(0.38 0.01 264)" }} />
-              <p
-                className="text-xs"
-                style={{ color: "oklch(0.48 0.01 264)", fontFamily: "'JetBrains Mono', monospace" }}
-              >
+              <p className="text-xs" style={{ color: "oklch(0.48 0.01 264)", fontFamily: "'JetBrains Mono', monospace" }}>
                 no recent commits
               </p>
             </div>
@@ -443,7 +584,6 @@ export default function Dashboard() {
                       border: "1px solid oklch(1 0 0 / 5%)",
                     }}
                   >
-                    {/* Repo name with node motif */}
                     <div className="flex items-center gap-2 mb-2">
                       <CommitNode />
                       <a
@@ -451,41 +591,30 @@ export default function Dashboard() {
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-[11px] font-semibold truncate transition-colors hover:text-[oklch(0.88_0.18_196)]"
-                        style={{
-                          color: "oklch(0.88 0.18 196 / 80%)",
-                          fontFamily: "'Space Grotesk', sans-serif",
-                        }}
+                        style={{ color: "oklch(0.88 0.18 196 / 80%)", fontFamily: "'Space Grotesk', sans-serif" }}
                       >
                         {repo.name}
                       </a>
                     </div>
-                    {/* Commit message */}
                     <p
                       className="text-xs leading-relaxed line-clamp-2 mb-2 pl-5"
                       style={{ color: "oklch(0.65 0.01 264)", fontFamily: "'Inter', sans-serif" }}
                     >
                       {commit.commit.message.split("\n")[0]}
                     </p>
-                    {/* SHA + timestamp */}
                     <div className="flex items-center justify-between pl-5">
                       <a
                         href={commit.html_url}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-[11px] transition-colors hover:text-[oklch(0.88_0.18_196)]"
-                        style={{
-                          color: "oklch(0.38 0.01 264)",
-                          fontFamily: "'JetBrains Mono', monospace",
-                        }}
+                        style={{ color: "oklch(0.38 0.01 264)", fontFamily: "'JetBrains Mono', monospace" }}
                       >
                         {shortSha(commit.sha)}
                       </a>
                       <span
                         className="text-[11px]"
-                        style={{
-                          color: "oklch(0.38 0.01 264)",
-                          fontFamily: "'JetBrains Mono', monospace",
-                        }}
+                        style={{ color: "oklch(0.38 0.01 264)", fontFamily: "'JetBrains Mono', monospace" }}
                       >
                         {timeAgo(commit.commit.author.date)}
                       </span>

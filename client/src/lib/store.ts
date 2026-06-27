@@ -1,7 +1,13 @@
 /* ============================================================
-   lib/store.ts — Persistent client-side state
-   Uses localStorage for agent assignments and prompt vault
+   lib/store.ts — Persistent client-side state (Phase 2)
+   All state uses localStorage — zero backend dependencies.
+   Keys:
+     hs_agent_assignments  → Record<repoName, AgentName>
+     hs_repo_statuses      → Record<repoName, StatusName>
+     hs_prompt_vault       → Prompt[]
    ============================================================ */
+
+// ── Agent Types ────────────────────────────────────────────────
 
 export type AgentName = "Bolt.new" | "Manus" | "Replit" | "Cursor" | "None";
 
@@ -13,6 +19,30 @@ export const AGENT_BADGE_CLASS: Record<AgentName, string> = {
   "Replit":   "badge-replit",
   "Cursor":   "badge-cursor",
   "None":     "badge-none",
+};
+
+// ── Status Types ───────────────────────────────────────────────
+
+export type StatusName = "Idea" | "Vibe Coding" | "Debugging" | "Deployed" | "None";
+
+export const STATUSES: StatusName[] = ["None", "Idea", "Vibe Coding", "Debugging", "Deployed"];
+
+/** Pill color classes for each status */
+export const STATUS_BADGE_CLASS: Record<StatusName, string> = {
+  "Idea":        "badge-status-idea",
+  "Vibe Coding": "badge-status-vibe",
+  "Debugging":   "badge-status-debug",
+  "Deployed":    "badge-status-deployed",
+  "None":        "badge-none",
+};
+
+/** Accent colors for left-border treatment in Spoke Tracker rows */
+export const STATUS_ACCENT: Record<StatusName, string> = {
+  "Idea":        "oklch(0.75 0.15 220)",
+  "Vibe Coding": "oklch(0.72 0.18 55)",
+  "Debugging":   "oklch(0.75 0.22 25)",
+  "Deployed":    "oklch(0.72 0.18 145)",
+  "None":        "transparent",
 };
 
 // ── Agent Assignments ──────────────────────────────────────────
@@ -30,6 +60,23 @@ export function loadAssignments(): Record<string, AgentName> {
 
 export function saveAssignments(assignments: Record<string, AgentName>): void {
   localStorage.setItem(ASSIGNMENTS_KEY, JSON.stringify(assignments));
+}
+
+// ── Repo Statuses ──────────────────────────────────────────────
+
+const STATUSES_KEY = "hs_repo_statuses";
+
+export function loadStatuses(): Record<string, StatusName> {
+  try {
+    const raw = localStorage.getItem(STATUSES_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+export function saveStatuses(statuses: Record<string, StatusName>): void {
+  localStorage.setItem(STATUSES_KEY, JSON.stringify(statuses));
 }
 
 // ── Prompt Vault ───────────────────────────────────────────────
