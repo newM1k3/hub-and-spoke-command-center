@@ -7,7 +7,7 @@
    - Better page composition (stats bar + tag cloud at top)
    - Expanded view with syntax-highlighted code block feel
    ============================================================ */
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Plus,
   Copy,
@@ -20,6 +20,8 @@ import {
   Tag,
   ChevronDown,
   ChevronUp,
+  Download,
+  Upload,
 } from "lucide-react";
 import {
   Dialog,
@@ -133,6 +135,42 @@ export default function PromptVault() {
     setForm((f) => ({ ...f, tags: f.tags.filter((t) => t !== tag) }));
   }
 
+  const importRef = useRef<HTMLInputElement>(null);
+
+  function exportJSON() {
+    const blob = new Blob([JSON.stringify(prompts, null, 2)], { type: "application/json" });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href     = url;
+    a.download = `prompt-vault-${new Date().toISOString().split("T")[0]}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success("→ vault exported", { description: `${prompts.length} prompts · JSON`, duration: 2000 });
+  }
+
+  function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const parsed: Prompt[] = JSON.parse(ev.target?.result as string);
+        if (!Array.isArray(parsed)) throw new Error("not an array");
+        // Merge: keep existing prompts, add imported ones that don't share an id
+        const existingIds = new Set(prompts.map((p) => p.id));
+        const newOnes = parsed.filter((p) => !existingIds.has(p.id));
+        const merged = [...prompts, ...newOnes];
+        persist(merged);
+        toast.success("→ vault imported", { description: `+${newOnes.length} new · ${parsed.length - newOnes.length} skipped (duplicate)`, duration: 3000 });
+      } catch {
+        toast.error("import failed", { description: "invalid JSON format", duration: 3000 });
+      }
+      // Reset input so the same file can be re-imported
+      if (importRef.current) importRef.current.value = "";
+    };
+    reader.readAsText(file);
+  }
+
   const allTags = Array.from(new Set(prompts.flatMap((p) => p.tags))).sort();
 
   const filtered = prompts.filter((p) => {
@@ -163,19 +201,61 @@ export default function PromptVault() {
             → {prompts.length} prompt{prompts.length !== 1 ? "s" : ""} stored · {allTags.length} tag{allTags.length !== 1 ? "s" : ""}
           </p>
         </div>
-        <button
-          onClick={openCreate}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all"
-          style={{
-            background: "oklch(0.88 0.18 196)",
-            color: "oklch(0.118 0.012 264)",
-            fontFamily: "'Space Grotesk', sans-serif",
-            boxShadow: "0 0 16px oklch(0.88 0.18 196 / 25%)",
-          }}
-        >
-          <Plus size={14} />
-          new prompt
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Hidden file input for import */}
+          <input
+            ref={importRef}
+            type="file"
+            accept=".json,application/json"
+            className="hidden"
+            onChange={handleImport}
+          />
+          {/* Export */}
+          <button
+            onClick={exportJSON}
+            disabled={prompts.length === 0}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-md text-xs transition-all disabled:opacity-40"
+            style={{
+              background: "oklch(0.165 0.012 264)",
+              border: "1px solid oklch(1 0 0 / 8%)",
+              color: "oklch(0.65 0.01 264)",
+              fontFamily: "'JetBrains Mono', monospace",
+            }}
+            title="export vault as JSON"
+          >
+            <Download size={13} />
+            export
+          </button>
+          {/* Import */}
+          <button
+            onClick={() => importRef.current?.click()}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-md text-xs transition-all"
+            style={{
+              background: "oklch(0.165 0.012 264)",
+              border: "1px solid oklch(1 0 0 / 8%)",
+              color: "oklch(0.65 0.01 264)",
+              fontFamily: "'JetBrains Mono', monospace",
+            }}
+            title="import prompts from JSON"
+          >
+            <Upload size={13} />
+            import
+          </button>
+          {/* New prompt */}
+          <button
+            onClick={openCreate}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all"
+            style={{
+              background: "oklch(0.88 0.18 196)",
+              color: "oklch(0.118 0.012 264)",
+              fontFamily: "'Space Grotesk', sans-serif",
+              boxShadow: "0 0 16px oklch(0.88 0.18 196 / 25%)",
+            }}
+          >
+            <Plus size={14} />
+            new prompt
+          </button>
+        </div>
       </div>
 
       {/* ── Stats + Tag Cloud ── */}

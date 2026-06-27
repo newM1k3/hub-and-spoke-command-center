@@ -132,6 +132,29 @@ export function clearPAT(): void {
   localStorage.removeItem(PAT_KEY);
 }
 
+// ── Spoke Tracker Sort Preference ────────────────────────────
+
+export type SortKey = "pushed" | "stars" | "agent" | "status";
+export type SortDir = "asc" | "desc";
+
+const SORT_KEY_KEY = "hs_sort_key";
+const SORT_DIR_KEY = "hs_sort_dir";
+
+export function loadSortPreference(): { key: SortKey; dir: SortDir } {
+  try {
+    const key = (localStorage.getItem(SORT_KEY_KEY) as SortKey) ?? "pushed";
+    const dir = (localStorage.getItem(SORT_DIR_KEY) as SortDir) ?? "desc";
+    return { key, dir };
+  } catch {
+    return { key: "pushed", dir: "desc" };
+  }
+}
+
+export function saveSortPreference(key: SortKey, dir: SortDir): void {
+  localStorage.setItem(SORT_KEY_KEY, key);
+  localStorage.setItem(SORT_DIR_KEY, dir);
+}
+
 // ── Prompt Vault ───────────────────────────────────────────────
 
 export interface Prompt {

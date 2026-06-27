@@ -21,6 +21,8 @@ import {
   ArrowRight,
   Rocket,
   X,
+  Maximize2,
+  Minimize2,
 } from "lucide-react";
 import { Link } from "wouter";
 import {
@@ -86,6 +88,7 @@ export default function Dashboard() {
   const [error, setError]                     = useState<string | null>(null);
   const [errorCode, setErrorCode]              = useState<"RATE_LIMIT" | "UNAUTHORIZED" | "UNKNOWN" | null>(null);
   const [lastSynced, setLastSynced]           = useState<Date | null>(null);
+  const [focusMode, setFocusMode]             = useState(false);
   const { agent: filterAgent, status: filterStatus, setAgent: setFilterAgent, setStatus: setFilterStatus, clearAll: clearFilters, hasActive: hasActiveFilters } = useUrlFilters();
 
   async function loadData() {
@@ -211,20 +214,43 @@ export default function Dashboard() {
               : "→ fetching github.com/newM1k3..."}
           </p>
         </div>
-        <button
-          onClick={loadData}
-          disabled={loading}
-          className="flex items-center gap-2 px-3 py-2 rounded-md text-xs transition-all"
-          style={{
-            background: "oklch(0.165 0.012 264)",
-            border: "1px solid oklch(1 0 0 / 8%)",
-            color: "oklch(0.65 0.01 264)",
-            fontFamily: "'JetBrains Mono', monospace",
-          }}
-        >
-          <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
-          sync
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Focus mode toggle */}
+          <button
+            onClick={() => setFocusMode((f) => !f)}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-md text-xs transition-all"
+            style={focusMode ? {
+              background: "oklch(0.88 0.18 196 / 12%)",
+              border: "1px solid oklch(0.88 0.18 196 / 30%)",
+              color: "oklch(0.88 0.18 196)",
+              fontFamily: "'JetBrains Mono', monospace",
+            } : {
+              background: "oklch(0.165 0.012 264)",
+              border: "1px solid oklch(1 0 0 / 8%)",
+              color: "oklch(0.65 0.01 264)",
+              fontFamily: "'JetBrains Mono', monospace",
+            }}
+            title={focusMode ? "exit focus mode" : "enter focus mode — hide heatmap & stats"}
+          >
+            {focusMode ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+            {focusMode ? "exit focus" : "focus"}
+          </button>
+          {/* Sync */}
+          <button
+            onClick={loadData}
+            disabled={loading}
+            className="flex items-center gap-2 px-3 py-2 rounded-md text-xs transition-all"
+            style={{
+              background: "oklch(0.165 0.012 264)",
+              border: "1px solid oklch(1 0 0 / 8%)",
+              color: "oklch(0.65 0.01 264)",
+              fontFamily: "'JetBrains Mono', monospace",
+            }}
+          >
+            <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
+            sync
+          </button>
+        </div>
       </div>
 
       {/* ── Error State ── */}
@@ -291,7 +317,9 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* ── Activity Heatmap ── */}
+      {/* ── Activity Heatmap + Stat Cards (hidden in focus mode) ── */}
+      {!focusMode && (
+        <>
       <ActivityHeatmap days={heatmapDays} loading={heatmapLoading} />
 
       {/* ── Stat Cards ── */}
@@ -338,11 +366,14 @@ export default function Dashboard() {
         ))}
       </div>
 
+        </>
+      )}
+
       {/* ── Main Grid ── */}
-      <div className="grid lg:grid-cols-5 gap-6">
+      <div className={focusMode ? "grid gap-6" : "grid lg:grid-cols-5 gap-6"}>
 
         {/* ── Repo List Column ── */}
-        <div className="lg:col-span-3 space-y-3">
+        <div className={focusMode ? "space-y-3" : "lg:col-span-3 space-y-3"}>
           <div className="flex items-center justify-between">
             <h2
               className="text-[11px] font-medium uppercase tracking-widest"

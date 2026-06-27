@@ -43,6 +43,8 @@ import {
   saveAssignments,
   loadStatuses,
   saveStatuses,
+  loadSortPreference,
+  saveSortPreference,
   AGENTS,
   STATUSES,
   AGENT_BADGE_CLASS,
@@ -50,6 +52,7 @@ import {
   STATUS_ACCENT,
   type AgentName,
   type StatusName,
+  type SortKey,
 } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -81,16 +84,19 @@ export default function SpokeTracker() {
   const [error, setError]             = useState<string | null>(null);
   const [errorCode, setErrorCode]     = useState<"RATE_LIMIT" | "UNAUTHORIZED" | "UNKNOWN" | null>(null);
   const [search, setSearch]           = useState("");
-  const [sortKey, setSortKey]          = useState<"pushed" | "stars" | "agent" | "status">("pushed");
-  const [sortDir, setSortDir]          = useState<"asc" | "desc">("desc");
+  const [sortKey, setSortKey]          = useState<SortKey>(() => loadSortPreference().key);
+  const [sortDir, setSortDir]          = useState<"asc" | "desc">(() => loadSortPreference().dir);
   const { agent: filterAgent, status: filterStatus, lang: filterLang, setAgent: setFilterAgent, setStatus: setFilterStatus, setLang: setFilterLang, clearAll: clearFilters, hasActive: hasActiveFilters } = useUrlFilters();
 
-  function toggleSort(key: typeof sortKey) {
+  function toggleSort(key: SortKey) {
     if (sortKey === key) {
-      setSortDir((d) => (d === "desc" ? "asc" : "desc"));
+      const newDir = sortDir === "desc" ? "asc" : "desc";
+      setSortDir(newDir);
+      saveSortPreference(key, newDir);
     } else {
       setSortKey(key);
       setSortDir("desc");
+      saveSortPreference(key, "desc");
     }
   }
 
