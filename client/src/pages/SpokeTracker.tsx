@@ -1,5 +1,7 @@
 /* ============================================================
-   SpokeTracker.tsx — Phase 2
+   SpokeTracker.tsx — Phase 3
+   + LanguageBar per repo row
+   + ChurnBadge (lines added/deleted) per repo row
    - Agent assignment (persisted to localStorage)
    - Status tracking: Idea / Vibe Coding / Debugging / Deployed
    - Dual filter bar: filter by Agent AND/OR Status
@@ -44,6 +46,8 @@ import {
 } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import LanguageBar from "@/components/analytics/LanguageBar";
+import ChurnBadge from "@/components/analytics/ChurnBadge";
 
 /* Agent accent colors for left-border treatment */
 const AGENT_ACCENT: Record<AgentName, string> = {
@@ -446,7 +450,7 @@ export default function SpokeTracker() {
                         {repo.description}
                       </p>
                     )}
-                    <div className="flex items-center gap-3 pl-5">
+                    <div className="flex items-center gap-3 pl-5 flex-wrap">
                       {repo.language && (
                         <div className="flex items-center gap-1.5">
                           <span
@@ -467,6 +471,12 @@ export default function SpokeTracker() {
                           {timeAgo(repo.pushed_at)}
                         </span>
                       </div>
+                      {/* Churn badge */}
+                      <ChurnBadge repoName={repo.name} />
+                    </div>
+                    {/* Language bar */}
+                    <div className="pl-5 mt-1">
+                      <LanguageBar repoName={repo.name} />
                     </div>
                   </div>
 

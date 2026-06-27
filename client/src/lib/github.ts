@@ -1,5 +1,6 @@
 /* ============================================================
    lib/github.ts — GitHub API types and fetch utilities
+   Phase 3: + language breakdown, commit stats (churn), heatmap
    Uses VITE_GITHUB_TOKEN env var (optional, increases rate limit)
    Target user: newM1k3
    ============================================================ */
@@ -35,6 +36,20 @@ export interface GitHubCommit {
   html_url: string;
 }
 
+/** Detailed commit with stats — returned by /repos/:owner/:repo/commits/:sha */
+export interface GitHubCommitDetail {
+  sha: string;
+  commit: {
+    message: string;
+    author: { name: string; date: string };
+  };
+  stats?: {
+    additions: number;
+    deletions: number;
+    total: number;
+  };
+}
+
 export interface GitHubUser {
   login: string;
   name: string | null;
@@ -43,6 +58,29 @@ export interface GitHubUser {
   followers: number;
   following: number;
   bio: string | null;
+}
+
+/** Language bytes map returned by /repos/:owner/:repo/languages */
+export type LanguageMap = Record<string, number>;
+
+/** Processed language slice for the bar */
+export interface LanguageSlice {
+  name: string;
+  percent: number;
+  color: string;
+}
+
+/** Churn summary for a repo (last N commits) */
+export interface ChurnStats {
+  additions: number;
+  deletions: number;
+  commits: number;
+}
+
+/** One day cell for the heatmap */
+export interface HeatmapDay {
+  date: string;   // ISO date string YYYY-MM-DD
+  count: number;  // total commits that day across all repos
 }
 
 function getHeaders(): HeadersInit {
@@ -76,10 +114,7 @@ export async function fetchRecentCommits(
     `${GITHUB_API_BASE}/repos/${username}/${repo}/commits?per_page=5`,
     { headers: getHeaders() }
   );
-  if (!res.ok) {
-    // Silently fail for repos with no commits (empty repos)
-    return [];
-  }
+  if (!res.ok) return [];
   return res.json();
 }
 
@@ -87,11 +122,161 @@ export async function fetchUser(username: string): Promise<GitHubUser> {
   const res = await fetch(`${GITHUB_API_BASE}/users/${username}`, {
     headers: getHeaders(),
   });
-  if (!res.ok) {
-    throw new Error(`GitHub API error: ${res.status}`);
-  }
+  if (!res.ok) throw new Error(`GitHub API error: ${res.status}`);
   return res.json();
 }
+
+// ── Phase 3: Language Breakdown ────────────────────────────────
+
+/**
+ * Fetch raw language byte counts for a repo.
+ * Returns {} silently on failure (private/empty repos).
+ */
+export async function fetchLanguages(
+  username: string,
+  repo: string
+): Promise<LanguageMap> {
+  const res = await fetch(
+    `${GITHUB_API_BASE}/repos/${username}/${repo}/languages`,
+    { headers: getHeaders() }
+  );
+  if (!res.ok) return {};
+  return res.json();
+}
+
+/**
+ * Convert a raw LanguageMap to sorted LanguageSlice[] (percentage-based).
+ * Groups languages < 3% into "Other" to keep the bar readable.
+ */
+export function processLanguages(raw: LanguageMap): LanguageSlice[] {
+  const total = Object.values(raw).reduce((a, b) => a + b, 0);
+  if (total === 0) return [];
+
+  const slices: LanguageSlice[] = Object.entries(raw)
+    .sort((a, b) => b[1] - a[1])
+    .map(([name, bytes]) => ({
+      name,
+      percent: (bytes / total) * 100,
+      color: getLanguageColor(name),
+    }));
+
+  // Merge tiny slices into "Other"
+  const main = slices.filter((s) => s.percent >= 3);
+  const other = slices.filter((s) => s.percent < 3);
+  if (other.length > 0) {
+    const otherPct = other.reduce((a, s) => a + s.percent, 0);
+    main.push({ name: "Other", percent: otherPct, color: "#6E7681" });
+  }
+  return main;
+}
+
+// ── Phase 3: Commit Churn ──────────────────────────────────────
+
+/**
+ * Fetch the last `limit` commits for a repo and sum their stats.
+ * Each commit requires a separate detail request — batched with Promise.all.
+ * Returns { additions: 0, deletions: 0, commits: 0 } on failure.
+ */
+export async function fetchChurnStats(
+  username: string,
+  repo: string,
+  limit = 5
+): Promise<ChurnStats> {
+  try {
+    // Step 1: get commit SHAs
+    const listRes = await fetch(
+      `${GITHUB_API_BASE}/repos/${username}/${repo}/commits?per_page=${limit}`,
+      { headers: getHeaders() }
+    );
+    if (!listRes.ok) return { additions: 0, deletions: 0, commits: 0 };
+    const list: GitHubCommit[] = await listRes.json();
+    if (!list.length) return { additions: 0, deletions: 0, commits: 0 };
+
+    // Step 2: fetch each commit detail for stats
+    const details = await Promise.all(
+      list.map(async (c) => {
+        const r = await fetch(
+          `${GITHUB_API_BASE}/repos/${username}/${repo}/commits/${c.sha}`,
+          { headers: getHeaders() }
+        );
+        if (!r.ok) return null;
+        return r.json() as Promise<GitHubCommitDetail>;
+      })
+    );
+
+    const stats = details.reduce(
+      (acc, d) => {
+        if (!d?.stats) return acc;
+        return {
+          additions: acc.additions + d.stats.additions,
+          deletions: acc.deletions + d.stats.deletions,
+          commits: acc.commits + 1,
+        };
+      },
+      { additions: 0, deletions: 0, commits: 0 }
+    );
+
+    return stats;
+  } catch {
+    return { additions: 0, deletions: 0, commits: 0 };
+  }
+}
+
+// ── Phase 3: Activity Heatmap ──────────────────────────────────
+
+/**
+ * Build a 28-day (4-week) heatmap from commit activity across all repos.
+ * Uses /repos/:owner/:repo/commits?since=...&until=... for each repo.
+ * Returns an array of 28 HeatmapDay objects, oldest → newest.
+ */
+export async function fetchHeatmapData(
+  username: string,
+  repos: GitHubRepo[]
+): Promise<HeatmapDay[]> {
+  // Build the 28-day window
+  const now = new Date();
+  const since = new Date(now);
+  since.setDate(since.getDate() - 27);
+
+  // Initialize all 28 days to 0
+  const dayMap: Record<string, number> = {};
+  for (let i = 0; i < 28; i++) {
+    const d = new Date(since);
+    d.setDate(d.getDate() + i);
+    dayMap[toDateStr(d)] = 0;
+  }
+
+  // Fetch commits for each repo in parallel (cap at 15 repos to stay within rate limits)
+  const targetRepos = repos.slice(0, 15);
+  await Promise.all(
+    targetRepos.map(async (repo) => {
+      try {
+        const res = await fetch(
+          `${GITHUB_API_BASE}/repos/${username}/${repo.name}/commits?since=${since.toISOString()}&until=${now.toISOString()}&per_page=100`,
+          { headers: getHeaders() }
+        );
+        if (!res.ok) return;
+        const commits: GitHubCommit[] = await res.json();
+        for (const c of commits) {
+          const day = toDateStr(new Date(c.commit.author.date));
+          if (day in dayMap) dayMap[day]++;
+        }
+      } catch {
+        // silently skip
+      }
+    })
+  );
+
+  return Object.entries(dayMap)
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([date, count]) => ({ date, count }));
+}
+
+function toDateStr(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+// ── Utilities ──────────────────────────────────────────────────
 
 export function timeAgo(dateString: string): string {
   const date = new Date(dateString);
@@ -117,21 +302,29 @@ export function shortSha(sha: string): string {
 
 export function getLanguageColor(lang: string | null): string {
   const colors: Record<string, string> = {
-    TypeScript: "#3178C6",
-    JavaScript: "#F7DF1E",
-    Python: "#3572A5",
-    HTML: "#E34C26",
-    CSS: "#563D7C",
-    Shell: "#89E051",
-    Go: "#00ADD8",
-    Rust: "#DEA584",
-    Vue: "#41B883",
-    Svelte: "#FF3E00",
-    Ruby: "#701516",
-    PHP: "#4F5D95",
-    "C#": "#178600",
-    Java: "#B07219",
-    Kotlin: "#A97BFF",
+    TypeScript:  "#3178C6",
+    JavaScript:  "#F7DF1E",
+    Python:      "#3572A5",
+    HTML:        "#E34C26",
+    CSS:         "#563D7C",
+    SCSS:        "#C6538C",
+    Shell:       "#89E051",
+    Go:          "#00ADD8",
+    Rust:        "#DEA584",
+    Vue:         "#41B883",
+    Svelte:      "#FF3E00",
+    Ruby:        "#701516",
+    PHP:         "#4F5D95",
+    "C#":        "#178600",
+    Java:        "#B07219",
+    Kotlin:      "#A97BFF",
+    Swift:       "#FA7343",
+    Dart:        "#00B4AB",
+    MDX:         "#FCB32C",
+    Markdown:    "#083FA1",
+    JSON:        "#8BC34A",
+    YAML:        "#CB171E",
+    Dockerfile:  "#384D54",
   };
   return colors[lang ?? ""] ?? "#8B949E";
 }
